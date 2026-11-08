@@ -225,7 +225,11 @@ export class Fighter {
       case 'super': this._super(dt); break;
       case 'superVictim': break;
       case 'ko': this._ko(dt); break;
-      case 'taunt': this._friction(dt, 6); if (this.stateT > this.tauntT) { this.setState('free'); this.model.setAction(null, 8); } break;
+      case 'taunt':
+        this._friction(dt, 6);
+        this.model.glow = damp(this.model.glow, 0, 1.5, dt);
+        if (this.stateT > this.tauntT) { this.setState('free'); this.model.setAction(null, 8); this.model.glow = 0; }
+        break;
       case 'intro': this._friction(dt, 4); break;
       case 'land': this._land(dt); break;
       case 'landed': this.vel.x = 0; this.vel.z = 0; break;
@@ -653,7 +657,20 @@ export class Fighter {
       _v.copy(from).addScaledVector(aim, s);
       if (_v.y < G.ground.heightAt(_v.x, _v.z) + 0.5) { len = s; hitGround = true; break; }
     }
-    const end = from.clone().addScaledVector(aim, len);
+    // ... or on him: it pours onto his body (or his guard) instead of going through
+    const o = this.opp;
+    let onHim = null;
+    if (o && !this.exploring && o.alive && o.invuln <= 0 && o.state !== 'grabbed' && o.state !== 'superVictim' && o.state !== 'getup' && !(o.ko && o.state !== 'launched')) {
+      const hc = o.hurtCenter(new THREE.Vector3());
+      const t = clamp(_v.subVectors(hc, from).dot(aim), 0, len);
+      const closest = from.clone().addScaledVector(aim, t);
+      if (closest.distanceTo(hc) < BEAM.radius + o.R * 0.8) {
+        onHim = from.clone().addScaledVector(aim, Math.max(4, t - o.R * 0.6));
+        len = Math.max(4, t - o.R * 0.6);
+        hitGround = false;
+      }
+    }
+    const end = onHim || from.clone().addScaledVector(aim, len);
     G.fx.beam.set(this.id, from, end, this.def.beamColor, this.def.beamCore, 5.5 + Math.sin(this.beamT * 40) * 0.6);
     if (this === G.player || G.camera.position.distanceTo(from) < 300) G.fightCam.addTrauma(0.012);
     this.beamTick -= dt;
@@ -676,21 +693,16 @@ export class Fighter {
       G.props && G.props.explosion(end, 22, 12);
       G.debris.explosion(end, 26, 10, 0.6);
     }
-    // him: within the beam's radius of the line
-    const o = this.opp;
-    if (!o || this.exploring || !o.alive) return;
-    const hc = o.hurtCenter(_p);
-    const t = clamp(_v.subVectors(hc, from).dot(aim), 0, len);
-    const closest = _w.copy(from).addScaledVector(aim, t);
-    if (closest.distanceTo(hc) > BEAM.radius + o.R * 0.8 || o.invuln > 0) return;
-    if (o.state === 'grabbed' || o.state === 'superVictim' || o.state === 'getup' || (o.ko && o.state !== 'launched')) return;
+    if (!onHim) return;
     const facing = _u.subVectors(this.pos, o.pos).setY(0).normalize().dot(_v.set(Math.sin(o.yaw), 0, Math.cos(o.yaw))) > -0.2;
     const pushDir = _u.copy(aim).setY(0).normalize();
     if (o.state === 'block' && facing) {
+      // it splashes off his guard
       o.takeDamage(BEAM.dmg * 0.15 * this.power, this, false);
       o.vel.x = pushDir.x * 9; o.vel.z = pushDir.z * 9;
-      G.fx.sparkCone(closest, pushDir.clone().negate().setY(0.4).normalize(), 20, new THREE.Color(this.def.beamColor), 50, 1.1, 0.6, 0.05);
-      G.audio && G.audio.hit('block', closest, true);
+      G.fx.sparkCone(onHim, pushDir.clone().negate().setY(0.5).normalize(), 34, new THREE.Color(this.def.beamColor), 60, 1.3, 0.7, 0.05);
+      G.fx.shock.flash(onHim, 12, this.def.beamColor, 0.1);
+      G.audio && G.audio.hit('block', onHim, true);
       return;
     }
     this.beamHits++;
@@ -702,8 +714,8 @@ export class Fighter {
       o.model.setAction(chance(0.5) ? 'hitHigh' : 'hitBody', 40);
     }
     o.vel.x = pushDir.x * 12; o.vel.z = pushDir.z * 12;
-    G.fx.pyro(closest, 0.6);
-    juiceHit(closest, pushDir, 0.45, { hitstop: 0.02, sound: 'mid', victimIsPlayer: o === G.player });
+    G.fx.pyro(onHim, 0.6);
+    juiceHit(onHim, pushDir, 0.45, { hitstop: 0.02, sound: 'mid', victimIsPlayer: o === G.player });
     this.meter = Math.min(100, this.meter + 1.2);
     // he can't stay on his feet for the whole of it
     if (this.beamHits === 9 && o.state === 'hitstun') {
@@ -1045,7 +1057,7 @@ export class Fighter {
     G.post && this === G.player && (G.post.speedTarget = clamp((sp - 30) / 50, 0, 0.8));
     // dust off him while flying fast
     const chaseCam = this === G.player && G.fightCam && G.fightCam.chase > 0.2;
-    if (sp > 30 && !chaseCam && Math.random() < 0.4 && this.stateT > 0.08) G.fx.dustPuff(this.pos, 4 + sp * 0.04, 1, 'white', _v.copy(this.vel).multiplyScalar(-0.05), 0.6 + Math.random() * 0.4);
+    if (sp > 30 && !chaseCam && Math.random() < 0.15 && this.stateT > 0.15) G.fx.dustPuff(_v.copy(this.pos).addScaledVector(this.vel, -0.15), 2.5, 1, 'white', _w.copy(this.vel).multiplyScalar(-0.05), 0.35 + Math.random() * 0.25);
   }
 
   _down(dt) {
@@ -1307,7 +1319,7 @@ export class Fighter {
     G.fx.shock.ring(head.clone(), null, 70, 0xffffff, 0.8, 0.05, 0.5);
     G.destruction.impact({ pos: head, radius: 0.5, power: 0.2, shatter: 46 });
     if (this.def.rig === 'beast') { G.audio && G.audio.roar(head); this.model.glow = 0.4; }
-    else this.shout('taunt', { odds: 1 });
+    else { this.shout('charge', { odds: 1 }); this.model.glow = 0.6; G.fx.shock.flash(this.model.chestWorld(new THREE.Vector3()), 16, 0xffe9a0, 0.25); }
     G.fightCam && G.fightCam.addTraumaAt(head, 0.35, 400);
   }
 

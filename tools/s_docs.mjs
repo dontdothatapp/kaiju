@@ -1,7 +1,8 @@
-// Captures the README screenshots (docs/shot-*.jpg). Run it twice:
-//   W=1280 H=720 node tools/shot.mjs "http://localhost:5173/?fight&mute" docs/x.png 5000 tools/s_docs.mjs
+// Captures the README screenshots (docs/shot-*.jpg). Run it three times:
+//   W=1280 H=720 node tools/shot.mjs "http://localhost:5173/?fight&mute&kaiju=kaiser" docs/x.png 5000 tools/s_docs.mjs
+//   W=1280 H=720 node tools/shot.mjs "http://localhost:5173/?fight&mute&kaiju=gorrax&shot=beam" docs/x.png 5000 tools/s_docs.mjs
 //   W=1280 H=720 node tools/shot.mjs "http://localhost:5173/?auto&intro&mute&kaiju=kaiser" docs/x.png 5000 tools/s_docs.mjs
-// The second one (with ?intro) grabs the round opener: the monster landing by the Flatiron.
+// fight / down / leap, then the ATOMIC BREATH, then the round opener (the monster by the Flatiron).
 export default async function (page, out) {
   const dir = out.replace(/[^/]+$/, '');
   const snap = (name) => page.screenshot({ path: dir + name, type: 'jpeg', quality: 86, timeout: 600000 });
@@ -9,7 +10,8 @@ export default async function (page, out) {
   const adv = (s) => ev((s) => window.__test.advance(s), s);
   const render = () => ev(() => window.__test.render());
   await ev(() => { window.__test.hold(true); window.__G.hud.hint(''); window.__G.hud.hint = () => {}; });
-  if (new URL(page.url()).searchParams.has('intro')) {
+  const q = new URL(page.url()).searchParams;
+  if (q.has('intro')) {
     await adv(5.7); await render();
     await snap('shot-intro.jpg');
     return;
@@ -27,18 +29,23 @@ export default async function (page, out) {
     p.pos.y = G.ground.heightAt(p.pos.x, p.pos.z) + p.hipH; p.vel.set(0, 0, 0); p.setState('free');
   }, d);
   await adv(2.5);
+  if (q.get('shot') === 'beam') {
+    // play as GORRAX (?kaiju=gorrax): the plates blaze and the breath pours onto the robot's guard
+    await close(95);
+    await ev(() => { const G = window.__G; G.player.beamE = 1; G.bot.ctrl.press('block'); G.bot.setState('block'); });
+    await tap('rise'); await adv(1.25);
+    await ev(() => { const G = window.__G; G.bot.ctrl.press('block'); G.bot.setState('block'); G.bot.stateT = 0; });
+    await adv(0.05); await render(); await snap('shot-beam.jpg');
+    return;
+  }
   // 1) a charged heavy landing, then him on his back in the street
   await close(34); await press('heavy'); await adv(1.05); await release('heavy'); await adv(0.14);
   await render(); await snap('shot-fight.jpg');
-  await adv(1.7); await render(); await snap('shot-down.jpg');
+  // wait till he's on his back in the street (or 3 s), then a beat for the dust to roll out
+  for (let i = 0; i < 30 && (await ev(() => window.__G.bot.state)) !== 'down'; i++) await adv(0.1);
+  await adv(0.35); await render(); await snap('shot-down.jpg');
   await adv(2.5);
-  // 2) ATOMIC BREATH (or the KAISER BEAM) coming at you while you brace
-  await close(110);
-  await ev(() => { const b = window.__G.bot; b.beamE = 1; b.beamStart(); });
-  await adv(0.4); await press('block'); await adv(0.75);
-  await render(); await snap('shot-beam.jpg');
-  await release('block'); await adv(2.5);
-  // 3) leap, then the slam on the way down
+  // 2) leap, then the slam on the way down
   await close(85); await tap('up'); await adv(0.5); await tap('light'); await adv(0.22);
   await render(); await snap('shot-leap.jpg');
 }

@@ -417,6 +417,7 @@ export class Recap {
       const m = f.model;
       m.looks(m.smearL, m.smearR, m.flash, m.damage);
       m.setVisible(true);
+      m.showSword(!!(f.grab && f.grab.sword));
       f.trailL.clear(); f.trailR.clear(); f.trailBody.clear();
       f.trailL.emitting = f.trailR.emitting = false;
     }
@@ -535,8 +536,9 @@ export class Recap {
     m.body.scale.set(L(7), L(8), L(9));
     JOINTS.forEach((j, n) => m.J[j].quaternion.slerpQuaternions(_q1.fromArray(A, 10 + n * 4), _q2.fromArray(B, 10 + n * 4), k));
     const o = 10 + JOINTS.length * 4;
-    m.looks(L(o), L(o + 1), L(o + 2), L(o + 3));
-    m.setVisible(A[o + 8] > 0.5);
+    m.looks(L(o), L(o + 1), L(o + 2), L(o + 3), L(o + 9), L(o + 10));
+    m.setVisible((A[o + 8] & 1) === 1);
+    m.showSword((A[o + 8] & 2) === 2);
     m.root.updateMatrixWorld(true);
     if (m.cape) m.cape.update(dt, _w.set(L(o + 4), L(o + 5), L(o + 6)));
     const flags = A[o + 7];

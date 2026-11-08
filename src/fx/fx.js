@@ -178,7 +178,7 @@ export class FX {
     if (s > 0.6) this.shock.ring(pos, dir, (4 + s * 12) * K * near, 0xffe6a0, 0.45 + s * 0.25, 0.08, 0.7);
     this.sparkCone(pos, dir, 14 + s * 44, col, 40 + s * 70, 0.9, 0.35 + s * 0.3, 0.05);
     // puffs only on big hits; small hits must not hide the poses
-    if (s > 0.7) this.dustPuff(pos.clone().addScaledVector(dir, 6), 2 + s * 2.5, 1 + Math.floor(s * 1.5), 'white', _v.copy(dir).multiplyScalar(20 * s), 0.4 + s * 0.3);
+    if (s > 0.7) this.dustPuff(pos.clone().addScaledVector(dir, 8), 1.5 + s * 1.2, 1 + Math.floor(s), 'white', _v.copy(dir).multiplyScalar(20 * s), 0.25 + s * 0.15);
     if (!opts.blocked && s > 0.35) this.blood(pos, dir, 4 + s * 18);
   }
 

@@ -17,8 +17,8 @@ import { G } from '../core/context.js';
 import { JOINTS } from './character.js';
 
 // fighter sample: root pos 3, root quat 4, body scale 3, joints 4 each, smear L/R, flash,
-// bruises, velocity 3, trail flags, visible
-export const FW = 10 + JOINTS.length * 4 + 9;
+// bruises, velocity 3, trail flags, visible (+2: sword out), plate / emblem glow, thrusters
+export const FW = 10 + JOINTS.length * 4 + 11;
 const HORIZON = 8;          // seconds of unclaimed history kept (a highlight reaches ~5.5 s back)
 const MOVE_DT = 1 / 20;     // debris / cars / train sample interval (game time)
 const FIGHTER_DT = 1 / 90;
@@ -315,7 +315,8 @@ export class Recorder {
     o[k++] = m.smearL; o[k++] = m.smearR; o[k++] = m.flash; o[k++] = m.damage;
     f.vel.toArray(o, k); k += 3;
     o[k++] = (f.trailL.emitting ? 1 : 0) | (f.trailR.emitting ? 2 : 0) | (f.trailBody.emitting ? 4 : 0);
-    o[k] = m.root.visible ? 1 : 0;
+    o[k++] = (m.root.visible ? 1 : 0) | (m.sword && m.sword.visible ? 2 : 0);
+    o[k++] = m.glow; o[k] = m.thrust;
     return o;
   }
 
