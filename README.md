@@ -111,16 +111,19 @@ BLOCK and backs off for the BEAM. Nobody gets knocked out. It ends on **Fight fo
 ### Scale
 
 The fighters are about **47 m tall** (GORRAX's tail adds another 35 m behind him). Around Madison
-Square, walk-ups come up to the knee, most blocks to the chest, and the Flatiron (87 m), Met Life
+Square, walk-ups come up to the waist, mid-rise blocks to the shoulder, and the Flatiron (87 m), Met Life
 (213 m) and New York Life (187 m) still tower over both of them. Everything in the fight is sized to
 that:
-- reach is ~25 m centre to centre, lunges 8–22 m, a knockdown leaves at 40–60 m/s;
-- gravity is close to real: 26 m/s² on your feet, 20 while knocked flying, so a big body falls
-  like a big body and every swing takes a beat longer than a person's would;
-- the camera sits 90–150 m back at chest height, wider when they're far apart or in the air, with
-  a chase cam when you're knocked flying and a low angle from the street for the supers. It never
-  dodges buildings: anything between the lens and either kaiju's chest dithers out of a
-  body-wide tunnel (`src/world/chunkMaterial.js`), and so does anything within 22 m of the lens;
+- reach is ~25 m centre to centre, lunges 8–34 m, knockdowns leave at 38–82 m/s;
+- gravity is heavier than real (26 m/s² on your feet, 20 while knocked flying) so leaps and
+  knockdowns land with a thud instead of floating, and every swing takes a beat longer than a
+  person's would;
+- the camera sits 90–150 m back at chest height, swinging round to a three-quarter view in close
+  (from straight behind, a 47 m body hides the other one), pulling up and back when they're far
+  apart, in the air or you're knocked flying, and dropping to a low angle in the street for the
+  supers. It never comes closer than 70 m to your kaiju, and it never dodges buildings: anything
+  between the lens and either kaiju's chest dithers out of a body-wide tunnel
+  (`src/world/chunkMaterial.js`), and so does anything within 22 m of the lens;
 - hit sparks, shockwaves, craters, dust, the force field, the shadow frustum and sound falloff
   all scaled up to match.
 
@@ -433,7 +436,7 @@ skyscraper-ending haymaker stay proportional:
 | Channel | Implementation |
 |---|---|
 | Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text and flash run in real time. |
-| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh), directional kick spring, FOV punch, every footfall felt by distance, chase cam when you're knocked flying, a low-angle cinematic with letterbox for supers. |
+| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh), directional kick spring, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a low-angle cinematic with letterbox for supers. |
 | Screen | Chromatic-aberration kick, radial zoom blur toward the impact, anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
 | Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
 | Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |
@@ -497,9 +500,8 @@ The design leaned on these; full notes in the commit history.
 - Camera shake: Squirrel Eiserloh, *Juicing Your Cameras With Math*, GDC 2016
   ([video](https://www.gamedeveloper.com/programming/video-sprucing-up-cameras-with-math)).
 
-- Scale through timing and the low angle: the kaiju films' miniature work (shot slow, from street
-  level) is why the camera here sits at chest height, looks up for the supers, and keeps gravity
-  near real.
+- Scale through the low angle: the kaiju films' miniature work, shot from street level, is why the
+  camera here sits at chest height and looks up for the supers.
 
 ## Code map
 

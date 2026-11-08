@@ -250,7 +250,7 @@ body.touch #tut .tt-text { font-size: 14px; margin-top: 3px; }
 body.touch #tut .tt-head { font-size: 13px; }
 body.touch #tut .tt-stamp { font-size: 42px; }
 /* HUD bits that would sit under the thumbs move up; keyboard-only panels go */
-body.touch #cityStats { bottom: auto; right: auto; left: 50%; top: calc(env(safe-area-inset-top) + 92px + var(--tu, 40px)); transform: translateX(-50%); font-size: 15px; white-space: nowrap; }
+body.touch #cityStats { bottom: auto; right: auto; left: 50%; top: calc(env(safe-area-inset-top) + 92px + var(--tu, 56px)); transform: translateX(-50%); font-size: 15px; white-space: nowrap; }
 body.touch #hint { bottom: auto; top: 38%; max-width: 34vw; font-size: 16px; }
 body.touch #controls { display: none; }
 @media (max-height: 500px) {
@@ -263,7 +263,7 @@ body.touch #controls { display: none; }
   .bar .pips i { width: 10px; height: 10px; border-width: 2px; }
   #timer { top: 6px; width: 60px; height: 52px; font-size: 34px; line-height: 55px; }
   #touch .tb-pause { top: calc(env(safe-area-inset-top) + 64px); }
-  body.touch #cityStats { top: calc(env(safe-area-inset-top) + 64px + 40px); }
+  body.touch #cityStats { top: calc(env(safe-area-inset-top) + 64px + 50px); }
   body.touch #tut { --tx: 0; left: auto; right: max(22px, env(safe-area-inset-right)); top: calc(env(safe-area-inset-top) + 70px); width: min(36vw, 340px); }
   body.touch #tut .tt-title { font-size: 22px; -webkit-text-stroke: 1.5px var(--ink); text-shadow: 3px 3px 0 var(--red); }
   body.touch #tut .tt-text { font-size: 12.5px; line-height: 1.35; }
@@ -292,6 +292,8 @@ body.touch kbd { min-width: 64px; font-size: 13px; padding: 1px 6px; }
   #toast { font-size: 26px; white-space: normal; width: 88vw; text-align: center; }
   .bar { width: 34vw; }
   .bar .name { font-size: 17px; }
+  .bar .beam { height: 6px; margin-top: 4px; border-width: 2px; }
+  .bar .beam span { display: none; }
   #timer { width: 58px; height: 50px; font-size: 32px; line-height: 53px; }
 }
 /* portrait phones: thumbs live in the bottom half, the fight (camera.js shifts it up) above */

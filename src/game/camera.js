@@ -1,5 +1,5 @@
 // Lock-on fight camera at kaiju scale, with trauma shake (Eiserloh: shake = trauma^2 * noise),
-// directional kick springs, FOV punches, a chase cam while you're knocked flying and a low-angle
+// directional kick springs, FOV punches, a wider shot while you're knocked flying and a low-angle
 // cinematic for the supers. The camera sits 90-150 m back at chest height; buildings between it
 // and the fighters dither out (world/chunkMaterial.js), so it never needs to dodge them.
 import * as THREE from 'three';
@@ -132,8 +132,9 @@ export class FightCamera {
       this.look.lerp(desiredLook, 1 - Math.exp(-10 * realDt));
       if (c.t > c.dur || (c.a.state !== 'super')) this.cine = null;
     } else {
-      // chase cam when the player is knocked flying: from behind the arc he's flying along
-      const launched = p.state === 'launched' && p.vel.length() > 30;
+      // knocked flying: the camera pulls up and back to take in where he lands (it doesn't swing
+      // round behind him: at this scale the swing would pass through his body)
+      const launched = p.state === 'launched' && p.vel.length() > 25;
       this.chase = damp(this.chase, launched ? 1 : 0, launched ? 5 : 2.5, realDt);
       const air = p.state === 'jump' || p.state === 'dive' || o.state === 'jump' || o.state === 'dive';
       this.air = damp(this.air, air ? 1 : 0, 2.2, realDt);
@@ -150,7 +151,7 @@ export class FightCamera {
       const at = this.attention;
       const glance = at ? clamp(at.t / 0.6, 0, 1) : 0;
       if (at && (at.t -= realDt) <= 0) this.attention = null;
-      const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45);
+      const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45, this.chase * 0.6);
       this.wide = damp(this.wide, spread, spread < this.wide ? 1.6 : 1.1, realDt);
       const W = this.wide;
       // portrait: further back and higher, and centred (a narrow screen has no room beside him)
@@ -164,19 +165,17 @@ export class FightCamera {
       const w = flat > 160 ? 0.7 : 0.55;
       const lockLook = pc.clone().addScaledVector(UP, 3 + 8 * W).lerp(oc, w);
       if (glance > 0) lockLook.lerp(at.pos, 0.35 * glance);
-      if (this.chase > 0.01) {
-        const vd = p.vel.clone().setY(0).normalize();
-        const side = new THREE.Vector3().crossVectors(vd, UP).normalize();
-        if (side.lengthSq() < 0.1) side.set(1, 0, 0);
-        const cp = p.pos.clone().addScaledVector(vd, -70).addScaledVector(UP, 28).addScaledVector(side, 30);
-        const cl = p.pos.clone().addScaledVector(vd, 60);
-        lockPos.lerp(cp, this.chase);
-        lockLook.lerp(cl, this.chase);
-      }
+      if (this.chase > 0.01) lockLook.lerp(pc, 0.3 * this.chase);
       desiredPos = lockPos; desiredLook = lockLook;
-      // a heavy camera: it lags the fighters a touch, like a crane
-      this.pos.lerp(desiredPos, 1 - Math.exp(-5 * realDt));
+      // a heavy camera: it lags the fighters a touch, like a crane (less so while he's flying)
+      const fast = Math.hypot(p.vel.x, p.vel.z) > 25 ? 9 : 5;
+      this.pos.lerp(desiredPos, 1 - Math.exp(-fast * realDt));
       this.look.lerp(desiredLook, 1 - Math.exp(-8 * realDt));
+      // and never lets him fill the lens: knocked back toward the camera, it backs off with him
+      const dx = this.pos.x - pc.x, dz = this.pos.z - pc.z, dh = Math.hypot(dx, dz), minD = 70 * (1 + 0.3 * pk);
+      if (dh < minD) {
+        if (dh > 1) { this.pos.x = pc.x + (dx / dh) * minD; this.pos.z = pc.z + (dz / dh) * minD; } else this.pos.addScaledVector(behind, minD);
+      }
     }
     // keep above the street (and out of the rubble mounds)
     const gh = G.ground.heightAt(this.pos.x, this.pos.z) + 4;
