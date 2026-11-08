@@ -23,6 +23,9 @@ from it; the fighters, their scale, movement, moves, AI, camera and effects are 
 | **Rocket jump into a KAISER KICK** | **Round opener: the monster lands in a street canyon** |
 | ![](docs/shot-leap.jpg) | ![](docs/shot-intro.jpg) |
 
+**Play it:** https://dontdothatapp.github.io/kaiju/ (desktop Chrome / Edge / Firefox, a gamepad
+if you have one; phones get touch controls).
+
 **Stack:** three.js r186 (WebGL2) · Rapier 0.21 (WASM, SIMD build) · Vite · plain ES modules.
 Every mesh, texture and animation is procedural. Sound is recorded samples and ElevenLabs sound
 effects, with procedural sub-bass, footfalls, beams and roars layered in (see [Audio](#audio)).
