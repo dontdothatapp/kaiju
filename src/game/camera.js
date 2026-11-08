@@ -1,5 +1,7 @@
-// Lock-on fight camera with trauma shake (Eiserloh: shake = trauma^2 * noise), directional
-// kick springs, FOV punches, a chase cam while you're being launched and cinematic shots.
+// Lock-on fight camera at kaiju scale, with trauma shake (Eiserloh: shake = trauma^2 * noise),
+// directional kick springs, FOV punches, a chase cam while you're knocked flying and a low-angle
+// cinematic for the supers. The camera sits 90-150 m back at chest height; buildings between it
+// and the fighters dither out (world/chunkMaterial.js), so it never needs to dodge them.
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { clamp, damp, noise1, lerp, UP } from '../core/math.js';
@@ -7,12 +9,14 @@ import { clamp, damp, noise1, lerp, UP } from '../core/math.js';
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _u = new THREE.Vector3();
+const _a = new THREE.Vector3();
+const _b = new THREE.Vector3();
 
 export class FightCamera {
   constructor(camera) {
     this.cam = camera;
-    this.baseFov = 62;
-    this.pos = new THREE.Vector3(0, 30, 60);
+    this.baseFov = 55;
+    this.pos = new THREE.Vector3(0, 80, 200);
     this.look = new THREE.Vector3();
     this.trauma = 0;
     this.kickV = new THREE.Vector3();
@@ -20,10 +24,9 @@ export class FightCamera {
     this.fovOff = 0;
     this.fovVel = 0;
     this.mode = 'lock';
-    this.modeBlend = 0;
     this.cine = null;
     this.chase = 0;
-    this.side = 1;
+    this.air = 0;
     this.t = 0;
     this.orbit = 0;
     this.wide = 0;          // 0 over the shoulder (melee) .. 1 pulled back over the city
@@ -32,6 +35,7 @@ export class FightCamera {
     this.pitch = -0.12;
     this.lookT = 0;         // seconds until it swings back behind his heading after a look
     this.steerT = 0;        // same, after the keys steered him round a turn
+    this.lastYaw = 0;
   }
 
   // Free roam steering: left / right turn the heading (and the view) rather than sidestep.
@@ -45,12 +49,12 @@ export class FightCamera {
   explore() {
     const d = this.cam.getWorldDirection(_v);
     this.yaw = Math.atan2(d.x, d.z);
-    this.pitch = clamp(Math.asin(d.y), -0.8, 0.5);
+    this.pitch = clamp(Math.asin(d.y), -0.6, 0.3);
     this.lookT = 0;
     this.mode = 'explore';
   }
 
-  // The direction free-roam movement is relative to (W flies where the camera looks).
+  // The direction free-roam movement (and the beam) is relative to.
   exploreDir(out) {
     return out.set(Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), Math.cos(this.yaw) * Math.cos(this.pitch));
   }
@@ -58,24 +62,18 @@ export class FightCamera {
   // A building is coming down: widen and turn toward it for a moment, if it's roughly in view.
   attend(pos, seconds = 2.6) {
     _v.subVectors(pos, this.cam.position);
-    if (_v.length() > 260 || _v.normalize().dot(this.cam.getWorldDirection(_w)) < -0.1) return;
+    if (_v.length() > 520 || _v.normalize().dot(this.cam.getWorldDirection(_w)) < -0.1) return;
     this.attention = { pos: pos.clone(), t: seconds };
   }
 
   addTrauma(a) { this.trauma = clamp(this.trauma + a * G.settings.shake, 0, 1); }
-  addTraumaAt(pos, a, falloff = 200) {
+  addTraumaAt(pos, a, falloff = 300) {
     const d = this.cam.position.distanceTo(pos);
     this.addTrauma(a * clamp(1 - d / falloff, 0, 1));
   }
-  kick(dir, amount) { this.kickV.addScaledVector(dir, amount * 9); }
+  kick(dir, amount) { this.kickV.addScaledVector(dir, amount * 30); }
   fovKick(deg) { this.fovVel += deg * 14; }
   cinematic(a, b, dur) { this.cine = { a, b, t: 0, dur, angle: Math.random() < 0.5 ? 1 : -1 }; }
-
-  _blocked(pos) {
-    let hit = false;
-    G.destruction.forChunksInSphere(pos, 2, () => { hit = true; });
-    return hit;
-  }
 
   update(realDt, dt) {
     const p = G.player, o = G.bot;
@@ -89,105 +87,99 @@ export class FightCamera {
       this.pos.copy(this.override.pos);
       this.look.copy(this.override.look);
     } else if (this.mode === 'orbit' || !p) {
-      // title / attract mode
-      this.orbit += realDt * 0.06;
-      const c = this.orbitCenter || _u.set(0, 30, 0);
-      desiredPos.set(c.x + Math.cos(this.orbit) * 70, c.y + 42 + Math.sin(this.orbit * 0.7) * 10, c.z + Math.sin(this.orbit) * 70);
+      // title / attract mode: a slow helicopter orbit over the arena
+      this.orbit += realDt * 0.05;
+      const c = this.orbitCenter || _u.set(0, 40, 0);
+      desiredPos.set(c.x + Math.cos(this.orbit) * 260, c.y + 120 + Math.sin(this.orbit * 0.7) * 25, c.z + Math.sin(this.orbit) * 260);
       desiredLook.copy(c);
       this.pos.lerp(desiredPos, 1 - Math.exp(-2 * realDt));
       this.look.lerp(desiredLook, 1 - Math.exp(-2 * realDt));
     } else if (this.mode === 'explore') {
-      // free roam after the match: a chase camera behind him. Drag (or the right stick) looks
-      // around; let go and it swings back in behind wherever he's flying.
+      // rampage after the match: a chase camera behind him. Drag (or the right stick) looks
+      // around; let go and it swings back in behind wherever he's walking.
       const inp = G.input;
       if (inp.look.x || inp.look.y || inp.lookRate) {
         this.yaw -= inp.look.x * 0.0045 + inp.lookRate * 2.4 * realDt;
-        this.pitch = clamp(this.pitch - inp.look.y * 0.0035, -1.0, 0.75);
+        this.pitch = clamp(this.pitch - inp.look.y * 0.0035, -0.75, 0.35);
         this.lookT = 1.2;
       }
       this.lookT -= realDt; this.steerT -= realDt;
-      const sp = p.vel.length(), hv = Math.hypot(p.vel.x, p.vel.z);
-      if (this.lookT <= 0 && this.steerT <= 0 && hv > 5) {
-        // settle in behind his heading: steady, and slower than his velocity turns (7 / s), so
-        // it never overshoots and swings back
+      const hv = Math.hypot(p.vel.x, p.vel.z);
+      if (this.lookT <= 0 && this.steerT <= 0 && hv > 4 && p.state !== 'beam') {
         let d = Math.atan2(p.vel.x, p.vel.z) - this.yaw;
         d = Math.atan2(Math.sin(d), Math.cos(d));
-        this.yaw += d * (1 - Math.exp(-3 * realDt * clamp(hv / 15, 0.25, 1)));
+        this.yaw += d * (1 - Math.exp(-2 * realDt * clamp(hv / 15, 0.25, 1)));
       }
       const fwd = this.exploreDir(_u);
-      const back = 8.5 + clamp(sp / 62, 0, 1) * 7;
-      desiredPos.copy(p.pos).addScaledVector(fwd, -back).addScaledVector(UP, 2.4);
-      for (let i = 0; i < 4 && this._blocked(desiredPos); i++) desiredPos.lerp(p.pos, 0.35).y += 1.5;
-      desiredLook.copy(p.pos).addScaledVector(fwd, 24).addScaledVector(UP, 0.2);
-      this.pos.lerp(desiredPos, 1 - Math.exp(-(sp > 45 ? 14 : 8) * realDt));
-      this.look.lerp(desiredLook, 1 - Math.exp(-12 * realDt));
+      const flat = _a.set(fwd.x, 0, fwd.z).normalize();
+      const chest = _b.copy(p.pos).setY(p.pos.y + p.H * 0.25);
+      desiredPos.copy(chest).addScaledVector(flat, -78).addScaledVector(UP, 26 - fwd.y * 60);
+      desiredLook.copy(chest).addScaledVector(fwd, 70);
+      this.pos.lerp(desiredPos, 1 - Math.exp(-5 * realDt));
+      this.look.lerp(desiredLook, 1 - Math.exp(-8 * realDt));
     } else if (this.cine) {
+      // the super: a low angle from the street, side-on to both of them, slowly pushing round
       const c = this.cine;
       c.t += realDt;
       const mid = _u.copy(c.a.pos).lerp(c.b.pos, 0.5);
-      const ab = _w.subVectors(c.b.pos, c.a.pos).normalize();
-      const side = new THREE.Vector3().crossVectors(ab, UP).normalize().multiplyScalar(c.angle);
-      const swing = c.t * 0.25;
-      desiredPos = new THREE.Vector3().copy(mid).addScaledVector(side, 4.2 - swing).addScaledVector(ab, -1.2 + swing * 2).add(new THREE.Vector3(0, 0.9, 0));
-      desiredLook = mid.clone().add(new THREE.Vector3(0, 0.3, 0));
-      this.pos.lerp(desiredPos, 1 - Math.exp(-10 * realDt));
-      this.look.lerp(desiredLook, 1 - Math.exp(-14 * realDt));
+      const ab = _w.subVectors(c.b.pos, c.a.pos).setY(0).normalize();
+      const side = _a.crossVectors(ab, UP).normalize().multiplyScalar(c.angle);
+      const swing = c.t * 0.22;
+      desiredPos = new THREE.Vector3().copy(mid).addScaledVector(side, 100 - swing * 25).addScaledVector(ab, -30 + swing * 45);
+      desiredPos.y = G.ground.heightAt(desiredPos.x, desiredPos.z) + 14 + swing * 10;
+      desiredLook = mid.clone().add(new THREE.Vector3(0, 14, 0));
+      this.pos.lerp(desiredPos, 1 - Math.exp(-6 * realDt));
+      this.look.lerp(desiredLook, 1 - Math.exp(-10 * realDt));
       if (c.t > c.dur || (c.a.state !== 'super')) this.cine = null;
     } else {
-      // chase cam when the player is launched hard: look down the flight path
-      const launched = p.state === 'launched' && p.vel.length() > 45;
-      this.chase = damp(this.chase, launched ? 1 : 0, launched ? 6 : 3, realDt);
-      const dist = p.pos.distanceTo(o.pos);
-      const to = _u.subVectors(o.pos, p.pos);
-      const horiz = Math.hypot(to.x, to.z);
-      // limit pitch so you never end up directly above/below; up in the sky keep the horizon
-      // (the skyline) in shot instead of staring straight down at him
-      const skyView = p.state === 'skyward' || p.state === 'skyhang';
-      const pitch = clamp(Math.atan2(to.y, horiz), skyView ? -0.42 : -0.75, 0.75);
-      const yaw = Math.atan2(to.x, to.z);
-      const fwd = new THREE.Vector3(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch));
+      // chase cam when the player is knocked flying: from behind the arc he's flying along
+      const launched = p.state === 'launched' && p.vel.length() > 30;
+      this.chase = damp(this.chase, launched ? 1 : 0, launched ? 5 : 2.5, realDt);
+      const air = p.state === 'jump' || p.state === 'dive' || o.state === 'jump' || o.state === 'dive';
+      this.air = damp(this.air, air ? 1 : 0, 2.2, realDt);
+      const pc = _a.copy(p.pos).setY(p.pos.y + p.H * 0.2);
+      const oc = _b.copy(o.pos).setY(o.pos.y + o.H * 0.2);
+      const to = _u.subVectors(oc, pc);
+      const flat = Math.hypot(to.x, to.z);
+      if (flat > 2) this.lastYaw = Math.atan2(to.x, to.z);
+      const yaw = this.lastYaw;
+      const fwd = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw));
       const right = new THREE.Vector3().crossVectors(fwd, UP).normalize();
-      // Scale: when the fight spreads out the camera pulls back and up so the city is in shot
-      // (and the skyline behind them); a melee exchange brings it back over the shoulder.
+      // Scale: when the fight spreads out the camera pulls back and up so the city is in shot;
+      // in close, it's over the shoulder at chest height, looking up a little at the other one.
       const at = this.attention;
       const glance = at ? clamp(at.t / 0.6, 0, 1) : 0;
       if (at && (at.t -= realDt) <= 0) this.attention = null;
-      // SKYWARD opens all the way up at once: the point of the move is the view
-      const spread = Math.max(clamp((dist - 8) / 32, 0, 1), 0.85 * glance, skyView ? 1 : 0);
-      this.wide = damp(this.wide, spread, skyView || spread < this.wide ? 2.5 : 1.2, realDt);
+      const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45);
+      this.wide = damp(this.wide, spread, spread < this.wide ? 1.6 : 1.1, realDt);
       const W = this.wide;
       // portrait: further back and higher, and centred (a narrow screen has no room beside him)
-      const back = lerp(5.2 + clamp(dist * 0.16, 0, 9), 15 + clamp(dist * 0.18, 0, 16), W) * (1 + 0.35 * pk * (1 - W));
-      const height = lerp(1.5 + clamp(dist * 0.04, 0, 3), 7 + clamp(dist * 0.08, 0, 8), W) + 0.8 * pk;
-      const lockPos = p.pos.clone().addScaledVector(fwd, -back).addScaledVector(UP, height).addScaledVector(right, lerp(1.45, 3.2, W) * (1 - 0.75 * pk));
-      // spring arm: never sit inside a building, slide in toward him (and up) until clear
-      for (let i = 0; i < 4 && this._blocked(lockPos); i++) lockPos.lerp(p.pos, 0.35).y += 1.5;
-      const w = skyView ? 0.35 : dist > 45 ? 0.75 : 0.45;
-      const lockLook = p.pos.clone().add(new THREE.Vector3(0, 0.6 + 4 * W, 0)).lerp(o.pos, w);
+      // in close the camera swings round to a three-quarter view (straight behind, a 47 m body
+      // hides the other one completely); pulled back, it settles in behind the shoulder
+      const back = lerp(104 + flat * 0.3, 150 + flat * 0.22, W) * (1 + 0.3 * pk * (1 - W));
+      const height = lerp(5, 42, W) + 16 * pk + this.air * 18;
+      const turn = lerp(0.75, 0.22, W) * (1 - 0.6 * pk);
+      const behind = fwd.clone().multiplyScalar(-Math.cos(turn)).addScaledVector(right, Math.sin(turn));
+      const lockPos = pc.clone().addScaledVector(behind, back).addScaledVector(UP, height).addScaledVector(right, lerp(14, 40, W) * (1 - 0.75 * pk));
+      const w = flat > 160 ? 0.7 : 0.55;
+      const lockLook = pc.clone().addScaledVector(UP, 3 + 8 * W).lerp(oc, w);
       if (glance > 0) lockLook.lerp(at.pos, 0.35 * glance);
-      if (p.state === 'skyhang') {
-        // the top of SKYWARD: just behind him, looking out over the city toward the Patriarch
-        // ~20 degrees down, so the skyline fills the shot and he's still in it, below
-        const flat = new THREE.Vector3(to.x, 0, to.z).normalize();
-        lockPos.copy(p.pos).addScaledVector(flat, -16).addScaledVector(UP, 5).addScaledVector(right, 3);
-        lockLook.copy(p.pos).addScaledVector(flat, 50).addScaledVector(UP, -18);
-      }
       if (this.chase > 0.01) {
-        const vd = p.vel.clone().normalize();
+        const vd = p.vel.clone().setY(0).normalize();
         const side = new THREE.Vector3().crossVectors(vd, UP).normalize();
         if (side.lengthSq() < 0.1) side.set(1, 0, 0);
-        const cp = p.pos.clone().addScaledVector(vd, -10).addScaledVector(UP, 3).addScaledVector(side, 2.5);
-        const cl = p.pos.clone().addScaledVector(vd, 18);
+        const cp = p.pos.clone().addScaledVector(vd, -70).addScaledVector(UP, 28).addScaledVector(side, 30);
+        const cl = p.pos.clone().addScaledVector(vd, 60);
         lockPos.lerp(cp, this.chase);
         lockLook.lerp(cl, this.chase);
       }
       desiredPos = lockPos; desiredLook = lockLook;
-      const fast = p.vel.length() > 60 || p.state === 'rush' ? 14 : 7;
-      this.pos.lerp(desiredPos, 1 - Math.exp(-fast * realDt));
-      this.look.lerp(desiredLook, 1 - Math.exp(-12 * realDt));
+      // a heavy camera: it lags the fighters a touch, like a crane
+      this.pos.lerp(desiredPos, 1 - Math.exp(-5 * realDt));
+      this.look.lerp(desiredLook, 1 - Math.exp(-8 * realDt));
     }
-    // keep above ground
-    const gh = G.ground.heightAt(this.pos.x, this.pos.z) + 1.2;
+    // keep above the street (and out of the rubble mounds)
+    const gh = G.ground.heightAt(this.pos.x, this.pos.z) + 4;
     if (this.pos.y < gh) this.pos.y = gh;
 
     // kick spring
@@ -198,8 +190,8 @@ export class FightCamera {
     this.fovVel += -this.fovOff * 160 * realDt;
     this.fovVel *= Math.exp(-14 * realDt);
     this.fovOff += this.fovVel * realDt;
-    const speedFov = p ? clamp((p.vel.length() - 30) / 140, 0, 1) * 14 : 0;
-    const fov = this.baseFov + 20 * pk + 6 * this.wide + this.fovOff + speedFov;
+    const speedFov = p ? clamp((p.vel.length() - 30) / 60, 0, 1) * 8 : 0;
+    const fov = this.baseFov + 20 * pk + 8 * this.wide + this.fovOff + speedFov;
     // the lift above the thumbs only matters while fighting (no controls in shots and menus)
     const lift = this.override || this.mode !== 'lock' || this.cine ? 0 : pk;
     if (pk > 0) {
@@ -219,16 +211,16 @@ export class FightCamera {
     cam.position.copy(this.pos).add(this.kickP);
     cam.lookAt(this.look);
     // trauma shake: rotational + a little positional, continues during hitstop (real time)
-    this.trauma = Math.max(0, this.trauma - realDt * 1.4);
+    this.trauma = Math.max(0, this.trauma - realDt * 1.3);
     const s = this.trauma * this.trauma;
     if (s > 0) {
-      const t = this.t * 28;
-      const maxA = 0.09;
+      const t = this.t * 24;
+      const maxA = 0.07;
       cam.rotateX(maxA * s * noise1(t));
       cam.rotateY(maxA * s * noise1(t + 37));
       cam.rotateZ(maxA * 1.4 * s * noise1(t + 71));
-      cam.position.x += 0.8 * s * noise1(t + 13);
-      cam.position.y += 0.8 * s * noise1(t + 23);
+      cam.position.x += 2.5 * s * noise1(t + 13);
+      cam.position.y += 2.5 * s * noise1(t + 23);
     }
   }
 }

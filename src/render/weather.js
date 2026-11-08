@@ -233,6 +233,12 @@ export class Weather {
     G.audio && G.audio.rain(Math.min(1, P.rain));
   }
 
+  // A bolt straight down onto this point (KAISER-OH's sword arriving), whatever the weather.
+  strikeAt(p) {
+    this.bolt.build(p.clone(), G.camera.position);
+    this.pulses = [{ t: 0, k: 1 }, { t: 0.1, k: 0.7 }, { t: 0.22, k: 0.9 }];
+  }
+
   // A bolt somewhere in front of the camera, 250-950 m out, into the skyline or the street.
   _strike() {
     const cam = G.camera;

@@ -1,6 +1,5 @@
-// On-screen controls for phones and tablets: a floating stick on the left half (fly toward /
-// around the opponent; it follows him up and down) with SKY above it, and a thumb cluster on
-// the right. Every control owns its finger (pointer capture), so any number can be held at
+// On-screen controls for phones and tablets: a floating stick on the left half (walk toward /
+// around the opponent) with BEAM and STOMP above it, and a thumb cluster on the right. Every control owns its finger (pointer capture), so any number can be held at
 // once. The layer only shows during a fight and swallows stray taps, so the title, pause and
 // results screens keep normal taps.
 import { G } from '../core/context.js';
@@ -10,23 +9,27 @@ const BUTTONS = [
   ['light', 'PUNCH', '', 'tb-light'],
   ['heavy', 'HEAVY', 'hold', 'tb-heavy'],
   ['block', 'BLOCK', '', 'tb-block'],
-  ['dash', 'DASH', 'hold: boost', 'tb-dash'],
+  ['dash', 'DASH', 'hold: run', 'tb-dash'],
   ['grab', 'GRAB', '', 'tb-grab'],
   ['super', 'SUPER', '', 'tb-super'],
-  ['rise', 'SKY', '', 'tb-rise'],
+  ['up', 'JUMP', '', 'tb-jump'],
+  ['rise', 'BEAM', '', 'tb-rise'],
+  ['down', 'STOMP', '', 'tb-stomp'],
   ['pause', 'II', '', 'tb-pause'],
 ];
 const DEAD = 0.12;
 
 export const TOUCH_CONTROLS = [
-  ['STICK', 'Left half of the screen: fly toward / around him'],
-  ['SKY', 'Shoot up over the city · then PUNCH or HEAVY: dive on him'],
+  ['STICK', 'Left half of the screen: walk toward / around him (through buildings)'],
   ['PUNCH', 'Combo (tap x4)'],
-  ['HEAVY', 'Hold to CHARGE · reaches him from anywhere'],
-  ['GRAB', 'Reaches him from anywhere · drags him through buildings · tap again: throw'],
+  ['HEAVY', 'Hold to CHARGE · after a combo hit: uppercut'],
+  ['JUMP', 'Leap · then PUNCH or HEAVY: slam down on him'],
+  ['STOMP', 'A quake that knocks him off his feet'],
+  ['BEAM', 'KAISER BEAM / ATOMIC BREATH when the gauge is full · the stick sweeps it'],
+  ['GRAB', 'Shove him through buildings · tap again: throw'],
   ['BLOCK', 'Hold · tap right before a hit to PARRY'],
-  ['DASH', 'Tap: dash, rush, air-recover · hold: boost'],
-  ['SUPER', 'Lights up at full meter: barrage'],
+  ['DASH', 'Tap: sidestep · hold: run (PUNCH while running: tackle)'],
+  ['SUPER', 'Lights up at full meter: the finisher'],
 ];
 
 // Phones and tablets get the controls from the start; touch laptops on their first touch.
@@ -61,6 +64,7 @@ export class TouchControls {
     for (const el of root.querySelectorAll('.tb')) this._button(el);
     this._stick(root.querySelector('.tz-stick'));
     this.superBtn = root.querySelector('.tb-super');
+    this.beamBtn = root.querySelector('.tb-rise');
     // When the layer hides (pause, results), a finger lifted afterwards would "click" whatever
     // menu button now sits under it: swallow clicks for a moment.
     this.blockClicksUntil = 0;
@@ -159,7 +163,10 @@ export class TouchControls {
   }
 
   update() {
-    if (this.active) this.superBtn.classList.toggle('ready', !!G.player && G.player.meter >= 100);
+    if (this.active) {
+      this.superBtn.classList.toggle('ready', !!G.player && G.player.meter >= 100);
+      this.beamBtn.classList.toggle('ready', !!G.player && G.player.beamE >= 1);
+    }
   }
 
   // The tutorial (game/tutorial.js) shows only the buttons it has taught so far (null: all of

@@ -1,7 +1,7 @@
 // Tutorial: the moves one at a time against the training dummy. Each step names a move, unlocks
 // it (on a touch screen its button pops in then, so the controls fill up as you learn them) and
 // waits until you've done it. The dummy plays along where a move needs him to: he swings at you
-// for BLOCK and backs off for GRAB (ai.js drills). There's no clock and nobody gets knocked out
+// for BLOCK and backs off for the BEAM (ai.js drills). There's no clock and nobody gets knocked out
 // (Fighter.takeDamage); the end panel goes on to a real fight, free practice or the menu.
 import { G, reloadWith } from '../core/context.js';
 
@@ -9,59 +9,75 @@ import { G, reloadWith } from '../core/context.js';
 const key = (desk, touch, pad) => (G.input.usingPad ? pad : G.touch ? touch : desk);
 const pb = (i) => `<b>${G.input.btn(i)}</b>`;
 const PUNCHES = new Set(['jab', 'cross', 'hook', 'smash']);
-const HEAVIES = new Set(['heavy', 'heavyCharged', 'uppercut', 'meteor']);
-const PRAISE = ['NICE!', 'GREAT!', 'BOOM!', 'YES!', 'SWEET!'];
+const HEAVIES = new Set(['heavy', 'heavyCharged', 'uppercut']);
+const PRAISE = ['NICE!', 'GREAT!', 'BOOM!', 'YES!', 'SMASHING!'];
 const PAUSE_DONE = 1.3; // seconds the stamp shows before the next step
 
 const punch = () => key('<b>LMB</b> or <b>J</b>', '<b>PUNCH</b>', pb(2));
-const dashKey = () => key('<b>SHIFT</b>', '<b>DASH</b>', pb(0));
+const dashKey = () => key('<b>SHIFT</b>', '<b>DASH</b>', pb(7));
 const heavyKey = () => key('<b>RMB</b> or <b>K</b>', '<b>HEAVY</b>', pb(3));
+const jumpKey = () => key('<b>SPACE</b>', '<b>JUMP</b>', pb(0));
+const flat = (p) => Math.hypot(p.vel.x, p.vel.z);
 
 // title; buttons it unlocks; the control that glows; the dummy's drill; how much of the goal
 // it takes, counted from what you do: frame (every frame), enter (a state you go into),
 // hit (your attack lands: its move and 'hit' | 'block' | 'parry' | 'guardBreak'), guard (his lands on you)
 const STEPS = [
   {
-    title: 'FLY', want: 'stick', need: 25, bar: true,
-    text: () => key('<b>W A S D</b> fly you toward and around him. Fly around a bit',
-      'Drag on the left half of the screen to fly toward and around him',
-      '<b>L-STICK</b> flies you toward and around him. Fly around a bit'),
-    frame: (p, dt) => (p.ctrl.move.lengthSq() > 0.04 ? p.vel.length() * dt : 0),
-  },
-  {
-    title: 'UP AND DOWN', need: 12, bar: true, desk: true, // the touch stick follows him up and down by itself
-    text: () => key('<b>SPACE</b> flies up, <b>C</b> flies down', '', `${pb(7)} flies up, ${pb(6)} down: the harder you pull, the faster`),
-    frame: (p, dt) => (Math.abs(p.ctrl.vert) > 0.1 ? Math.abs(p.vel.y) * dt : 0),
+    title: 'WALK', want: 'stick', need: 80, bar: true,
+    text: () => key('<b>W A S D</b> walk you toward and around him. Anything in the way gets flattened. Walk around a bit',
+      'Drag on the left half of the screen to walk toward and around him. Anything in the way gets flattened',
+      '<b>L-STICK</b> walks you toward and around him. Anything in the way gets flattened'),
+    frame: (p, dt) => (p.ctrl.move.lengthSq() > 0.04 ? flat(p) * dt : 0),
   },
   {
     title: 'PUNCH', unlock: ['light'], want: 'light', need: 3,
-    text: () => `${key('Click or press', 'Tap', 'Press')} ${punch()} to punch him. Land three`,
+    text: () => `Walk up to him and ${key('click or press', 'tap', 'press')} ${punch()}. Land three`,
     hit: (mv) => (PUNCHES.has(mv.name) ? 1 : 0),
   },
   {
     title: 'COMBO', want: 'light', need: 1,
-    text: () => `${punch()} four times in a row: the fourth hit sends him flying`,
+    text: (p) => `${punch()} four times in a row: the fourth (${p.def.rig === 'mech' ? 'the hammer' : 'the tail whip'}) knocks him flat`,
     hit: (mv, out) => (mv.name === 'smash' && out === 'hit' ? 1 : 0),
   },
   {
-    title: 'DASH', unlock: ['dash'], want: 'dash', need: 2,
-    text: () => `Tap ${dashKey()} to dash out of the way. Do it twice. Hold it while you fly to boost`,
-    enter: (s) => (s === 'dash' || s === 'rush' ? 1 : 0),
+    title: 'SIDESTEP', unlock: ['dash'], want: 'dash', need: 2,
+    text: () => `Tap ${dashKey()} to hop out of the way. Do it twice`,
+    enter: (s) => (s === 'dash' ? 1 : 0),
   },
   {
-    title: 'RUSH', want: 'dash', need: 1,
-    text: () => `Send him flying with the combo, then tap ${dashKey()} to rush after him`,
-    enter: (s) => (s === 'rush' ? 1 : 0),
+    title: 'RUN', want: 'dash', need: 120, bar: true,
+    text: () => `Hold ${dashKey()} while you walk to RUN, straight through a block or two`,
+    frame: (p, dt) => (p.running ? flat(p) * dt : 0),
   },
   {
     title: 'HEAVY', unlock: ['heavy'], want: 'heavy', need: 1,
-    text: () => `Tap ${heavyKey()} for a heavy hit. It reaches him from anywhere`,
+    text: () => `Tap ${heavyKey()} for a heavy hit`,
     hit: (mv) => (HEAVIES.has(mv.name) ? 1 : 0),
   },
   {
     title: 'CHARGE', want: 'heavy', need: 1,
-    text: () => `Hold ${heavyKey()} until it flashes, then let go: through a skyscraper he goes`,
+    text: () => `Hold ${heavyKey()} until it flashes, then let go: he goes through whatever's behind him`,
     hit: (mv) => (mv.name === 'heavyCharged' && (mv.charge || 0) >= 0.5 ? 1 : 0),
+  },
+  {
+    title: 'LEAP', unlock: ['up'], want: 'up', need: 1,
+    text: () => `${jumpKey()} to leap`,
+    enter: (s) => (s === 'jump' ? 1 : 0),
+  },
+  {
+    title: 'SLAM', want: 'light', need: 1,
+    text: (p) => {
+      const attack = key('<b>LMB</b> or <b>RMB</b>', '<b>PUNCH</b> or <b>HEAVY</b>', `${pb(2)} or ${pb(3)}`);
+      return p.state === 'jump' ? `Now ${attack}: ${p.def.diveName}!` : `${jumpKey()} again, then ${attack} in the air to slam down on him`;
+    },
+    // a frame check, not an entry: the slam may already be under way when the step comes up
+    frame: (p) => (p.state === 'dive' || (p.move && p.move.name === 'diveSlam') ? 1 : 0),
+  },
+  {
+    title: 'STOMP', unlock: ['down'], want: 'down', need: 1,
+    text: () => `${key('Press <b>C</b>', 'Tap <b>STOMP</b>', `Press ${pb(6)}`)}: the quake knocks anyone near you off their feet`,
+    frame: (p) => (p.move && p.move.name === 'stomp' && p.move.started ? 1 : 0),
   },
   {
     title: 'BLOCK', unlock: ['block'], want: 'block', need: 2, drill: 'swing',
@@ -69,28 +85,18 @@ const STEPS = [
     guard: (out) => (out === 'parry' ? 2 : out === 'block' ? 1 : 0),
   },
   {
-    title: 'GRAB', unlock: ['grab'], want: 'grab', need: 1, drill: 'keepAway',
-    text: () => `He's keeping his distance. Tap ${key('<b>E</b>', '<b>GRAB</b>', pb(1))}: you fly at him wherever he is and drag him through buildings. Tap it again to throw`,
+    title: 'GRAB', unlock: ['grab'], want: 'grab', need: 1,
+    text: () => `Get close and tap ${key('<b>E</b>', '<b>GRAB</b>', pb(1))}: you shove him through the buildings. Tap it again to throw`,
     frame: (p) => (p.grab && p.grab.phase === 'throw' ? 1 : 0),
   },
   {
-    title: 'SKYWARD', unlock: ['rise'], want: 'rise', need: 1,
-    text: () => `${key('Press <b>G</b>', 'Tap <b>SKY</b>', `Press ${pb(12)}`)} to shoot straight up over the city`,
-    enter: (s) => (s === 'skyhang' ? 1 : 0),
-  },
-  {
-    title: 'DIVE', want: 'light', need: 1,
-    text: (p) => {
-      const attack = key('<b>LMB</b> or <b>RMB</b>', '<b>PUNCH</b> or <b>HEAVY</b>', `${pb(2)} or ${pb(3)}`);
-      return p.state === 'skyward' || p.state === 'skyhang' ? `Now ${attack}: dive on him from up there`
-        : `${key('<b>G</b>', '<b>SKY</b>', pb(12))} again, then ${attack} at the top to dive on him`;
-    },
-    // a frame check, not an entry: the dive may already be under way when the step comes up
-    frame: (p) => (p.state === 'skydive' || (p.move && p.move.name === 'skyStrike') ? 1 : 0),
+    title: 'BEAM', unlock: ['rise'], want: 'rise', need: 1, drill: 'keepAway', beam: true,
+    text: (p) => `He's backing off. ${key('Press <b>G</b>', 'Tap <b>BEAM</b>', `Press ${pb(12)}`)}: ${p.def.beamName}! ${key('<b>A</b> / <b>D</b>', 'The stick', 'The stick')} sweeps it across the skyline`,
+    frame: (p) => (p.state === 'beam' && p.beamPh === 'fire' ? 1 : 0),
   },
   {
     title: 'SUPER', unlock: ['super'], want: 'super', need: 1, meter: true,
-    text: () => `Your meter is full. Get close and ${key('press <b>R</b>', 'tap <b>SUPER</b>', `press ${pb(5)}`)}`,
+    text: (p) => `Your meter is full. Get close and ${key('press <b>R</b>', 'tap <b>SUPER</b>', `press ${pb(5)}`)}: ${p.def.superName}!`,
     enter: (s) => (s === 'super' ? 1 : 0),
   },
 ];
@@ -111,7 +117,7 @@ export class Tutorial {
   start() {
     this.steps = STEPS.filter((s) => !(s.desk && G.touch));
     this.i = -1;
-    this.allowed = new Set(['up', 'down']); // flying is free from the start; every button is taught
+    this.allowed = new Set(); // walking is free from the start; every button is taught
     this.active = true;
     this.free = false;    // free practice after the last step
     this.panel = false;   // the end panel is up
@@ -191,6 +197,7 @@ export class Tutorial {
     }
     const s = this.step;
     if (s.meter && p.meter < 100 && p.state !== 'super') p.meter = 100; // a missed super keeps it full anyway
+    if (s.beam && p.beamE < 1 && p.state !== 'beam') p.beamE = 1;
     if (entered && s.enter) this._add(s.enter(entered));
     if (s.frame) this._add(s.frame(p, dt));
     if (!this.done) this._render(); // the text follows the device in use and, for DIVE, where he is

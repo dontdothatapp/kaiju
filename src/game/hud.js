@@ -10,30 +10,30 @@ import { WEATHERS } from '../render/weather.js';
 const _v = new THREE.Vector3();
 
 const CONTROLS = [
-  ['W A S D', 'Fly (toward / around the opponent)'],
-  ['SPACE / C', 'Up / down'],
-  ['SHIFT', 'Tap: dash (rush a launched enemy) · Hold: boost'],
-  ['LMB / J', 'Punch combo (x4)'],
-  ['RMB / K', 'Heavy · hold to CHARGE · reaches him from anywhere · +SPACE uppercut · +C meteor'],
-  ['G', 'SKYWARD: shoot up over the city, then attack to dive on him'],
-  ['E / L / MMB', 'Grab · reaches him from anywhere → drag through buildings → throw'],
+  ['W A S D', 'Walk (toward / around him) · straight through buildings'],
+  ['SHIFT', 'Tap: sidestep · Hold: RUN (LMB while running: tackle)'],
+  ['SPACE', 'Leap · then LMB / RMB to slam down on him · tap when knocked down to get up'],
+  ['LMB / J', 'Combo x4 (robot: jab, cross, hook, hammer · monster: claw, claw, bite, tail whip)'],
+  ['RMB / K', 'Heavy · hold to CHARGE · after a combo hit: uppercut'],
+  ['C', 'STOMP: a quake that knocks him off his feet (jump it!)'],
+  ['G / B', 'BEAM: KAISER BEAM / ATOMIC BREATH · A / D sweep it (gauge refills)'],
+  ['E / L / MMB', 'Grab → shove him through buildings → throw'],
   ['Q / F', 'Block (tap right before a hit to PARRY)'],
-  ['R / U', 'SUPER: barrage (full meter)'],
-  ['SHIFT while flying', 'Air-recover when launched'],
+  ['R / U', 'SUPER (full meter): SABER FINAL STRIKE / NUCLEAR NOVA'],
   ['ESC', 'Pause · M mute · H controls'],
 ];
 // the same, on a pad: b(i) is what the connected pad prints on standard button i
 const padControls = (b) => [
-  ['L-STICK', 'Fly (toward / around the opponent)'],
-  [`${b(7)} / ${b(6)}`, 'Up / down (the harder, the faster) · R-stick too'],
-  [b(0), 'Tap: dash (rush a launched enemy) · Hold: boost'],
-  [b(2), 'Punch combo (x4)'],
-  [b(3), `Heavy · hold to CHARGE · reaches him from anywhere · +${b(7)} uppercut · +${b(6)} meteor`],
-  [b(12), 'SKYWARD: shoot up over the city, then attack to dive on him'],
-  [b(1), 'Grab · reaches him from anywhere → drag through buildings → throw'],
+  ['L-STICK', 'Walk (toward / around him) · straight through buildings'],
+  [b(7), `Tap: sidestep · Hold: RUN (${b(2)} while running: tackle)`],
+  [b(0), `Leap · then ${b(2)} / ${b(3)} to slam down on him · get up faster`],
+  [b(2), 'Combo x4'],
+  [b(3), 'Heavy · hold to CHARGE · after a combo hit: uppercut'],
+  [b(6), 'STOMP: a quake that knocks him off his feet'],
+  [`${b(12)} / ${b(11)}`, 'BEAM · the stick sweeps it'],
+  [b(1), 'Grab → shove him through buildings → throw'],
   [b(4), 'Block (tap right before a hit to PARRY)'],
-  [b(5), 'SUPER: barrage (full meter)'],
-  [`${b(0)} while flying`, 'Air-recover when launched'],
+  [b(5), 'SUPER (full meter)'],
   [b(9), `Pause · ${b(8)} controls · menus: D-pad + ${b(0)}`],
 ];
 
@@ -42,9 +42,9 @@ export class HUD {
     const root = this.root = document.getElementById('ui');
     root.innerHTML = `
       <div id="hud" class="hidden">
-        <div class="bar p1"><div class="name"></div><div class="hp"><div class="chip"></div><div class="fill"></div></div><div class="meter"><div class="mfill"></div><span>SUPER</span></div><div class="pips"></div><div class="ftext"></div></div>
+        <div class="bar p1"><div class="name"></div><div class="hp"><div class="chip"></div><div class="fill"></div></div><div class="meter"><div class="mfill"></div><span>SUPER</span></div><div class="pips"></div><div class="beam"><div class="bfill"></div><span>BEAM</span></div><div class="ftext"></div></div>
         <div id="timer">99</div>
-        <div class="bar p2"><div class="name"></div><div class="hp"><div class="chip"></div><div class="fill"></div></div><div class="meter"><div class="mfill"></div><span>SUPER</span></div><div class="pips"></div><div class="ftext"></div></div>
+        <div class="bar p2"><div class="name"></div><div class="hp"><div class="chip"></div><div class="fill"></div></div><div class="meter"><div class="mfill"></div><span>SUPER</span></div><div class="pips"></div><div class="beam"><div class="bfill"></div><span>BEAM</span></div><div class="ftext"></div></div>
         <div id="combo"><div class="n"></div><div class="l">HITS</div><div class="tag"></div></div>
         <div id="cityStats"></div>
         <div id="hint"></div>
@@ -58,14 +58,15 @@ export class HUD {
       <div id="controls" class="hidden"></div>
       <div id="title" class="hidden">
         <div class="t-wrap">
-          <div class="t-logo">BLOODLINE</div>
-          <div class="t-sub">A SUPERPOWERED DESTRUCTION FIGHTER · TECH DEMO</div>
-          <div class="t-vs"><span class="heir">THE HEIR</span><b>VS</b><span class="pat">THE PATRIARCH</span></div>
+          <div class="t-logo">MEGATON</div>
+          <div class="t-sub">A KAIJU DESTRUCTION FIGHTER · TECH DEMO</div>
+          <div class="t-vs"><button class="pick kaiser" data-k="kaiser">KAISER-OH<small>giant robot</small></button><b>VS</b><button class="pick gorrax" data-k="gorrax">GORRAX<small>atomic lizard</small></button></div>
+          <div class="t-pickhint">click a kaiju to play as it</div>
           <div class="t-diff">
             <button data-d="training">TRAINING<small>dummy · free destruction</small></button>
             <button data-d="sparring">SPARRING<small>recommended</small></button>
             <button data-d="brutal">BRUTAL<small>hard</small></button>
-            <button data-d="viltrumite">UNSTOPPABLE<small>good luck</small></button>
+            <button data-d="king">KAIJU KING<small>good luck</small></button>
           </div>
           <div class="t-opts">
             <label><input type="checkbox" id="optGore" checked> Blood</label>
@@ -97,13 +98,13 @@ export class HUD {
       <div id="tutEnd" class="hidden"><div class="p-box">
         <div class="p-title">YOU'RE READY</div>
         <div class="te-sub">Every move is unlocked. Time to try them on someone who hits back.</div>
-        <div class="r-btns"><button id="teFight">FIGHT HIM<small>sparring · ENTER</small></button><button id="tePractice">KEEP PRACTISING<small>the dummy stays</small></button><button id="teMenu">MAIN MENU</button></div>
+        <div class="r-btns"><button id="teFight">FIGHT FOR REAL<small>sparring · ENTER</small></button><button id="tePractice">KEEP PRACTISING<small>the dummy stays</small></button><button id="teMenu">MAIN MENU</button></div>
       </div></div>
       <div id="results" class="hidden"><div class="p-box r-box">
         <div class="r-title"></div>
         <div class="r-score"></div>
         <div class="r-stats"></div>
-        <div class="r-btns"><button id="rRecap" class="hidden">WATCH RECAP<small>the best moments · R</small></button><button id="rRematch">REMATCH<small>same wrecked city · ENTER</small></button><button id="rNewCity">NEW CITY<small>fresh skyline · N</small></button><button id="rExplore">FLY AROUND<small>tour the wreckage · X</small></button><button id="rMenu">MAIN MENU<small>pick a difficulty</small></button></div>
+        <div class="r-btns"><button id="rRecap" class="hidden">WATCH RECAP<small>the best moments · R</small></button><button id="rRematch">REMATCH<small>same wrecked city · ENTER</small></button><button id="rNewCity">NEW CITY<small>fresh skyline · N</small></button><button id="rExplore">RAMPAGE<small>stomp the wreckage · X</small></button><button id="rMenu">MAIN MENU<small>pick a difficulty</small></button></div>
       </div></div>
       <div id="pause" class="hidden"><div class="p-box"><div class="p-title">PAUSED</div><button id="resumeBtn">RESUME</button><button id="skipBtn" class="hidden">SKIP STEP</button><button id="restartBtn">REMATCH</button><button id="newCityBtn">NEW CITY</button><button id="musicBtn">MUSIC: ON</button><button id="menuBtn">MAIN MENU</button><div class="p-ctrl"></div></div></div>
       <div id="soundHint" class="hidden">SOUND IS OFF · <b>CLICK</b> OR PRESS A <b>KEY</b> ONCE<small>browsers won't let a controller turn it on</small></div>
@@ -131,7 +132,18 @@ export class HUD {
     this.toastT = 0;
     this.difficulty = G.settings.difficulty;
     root.querySelector(`.t-diff button[data-d="${this.difficulty}"]`)?.classList.add('sel');
-    root.querySelectorAll('.t-diff button, .t-go, .t-more button, .p-box button').forEach((b) => b.addEventListener('pointerenter', () => G.audio && G.audio.sting('hover')));
+    root.querySelectorAll('.t-diff button, .t-go, .t-more button, .p-box button, .t-vs .pick').forEach((b) => b.addEventListener('pointerenter', () => G.audio && G.audio.sting('hover')));
+    // who you play: the bot takes the other one (the game swaps them on the spot)
+    const picks = root.querySelectorAll('.t-vs .pick');
+    const markPick = () => picks.forEach((x) => x.classList.toggle('sel', x.dataset.k === G.settings.playAs));
+    picks.forEach((b) => b.addEventListener('click', () => {
+      if (b.dataset.k === G.settings.playAs) return;
+      try { localStorage.setItem('megaton-kaiju', b.dataset.k); } catch (e) { /* storage blocked */ }
+      G.audio && G.audio.sting('ui');
+      G.game && G.game.setPlayAs(b.dataset.k);
+      markPick();
+    }));
+    this.markPick = markPick;
     root.querySelector('#ctrlBtn').addEventListener('click', () => this.titleControls(true));
     root.querySelector('#ctrlBack').addEventListener('click', () => this.titleControls(false));
     root.querySelectorAll('.t-diff button').forEach((b) => b.addEventListener('click', () => {
@@ -143,14 +155,14 @@ export class HUD {
     const q = root.querySelector('#optQuality');
     q.value = G.settings.quality;
     q.addEventListener('change', () => {
-      try { localStorage.setItem('bloodline-quality', q.value); } catch (e) { /* storage blocked */ }
+      try { localStorage.setItem('megaton-quality', q.value); } catch (e) { /* storage blocked */ }
       const u = new URL(location.href);
       if (u.searchParams.has('quality')) { u.searchParams.set('quality', q.value); location.href = u.toString(); } else location.reload();
     });
     const mp = root.querySelector('#optMap');
     mp.value = URLP.map;
     mp.addEventListener('change', () => {
-      try { localStorage.setItem('bloodline-map', mp.value); } catch (e) { /* storage blocked */ }
+      try { localStorage.setItem('megaton-map', mp.value); } catch (e) { /* storage blocked */ }
       const u = new URL(location.href);
       if (u.searchParams.has('map')) { u.searchParams.set('map', mp.value); location.href = u.toString(); } else location.reload();
     });
@@ -287,6 +299,7 @@ export class HUD {
 
   showTitle(onFight, onTutorial) {
     this.el.title.classList.remove('hidden');
+    this.markPick();
     this.showHUD(false);
     const leave = () => { this.el.title.classList.add('hidden'); this.el.titleCtrl.classList.add('hidden'); };
     const go = () => { leave(); onFight(this.difficulty); };
@@ -374,6 +387,8 @@ export class HUD {
       bar.querySelector('.fill').style.width = hp + '%';
       bar.querySelector('.chip').style.width = this.chip[i] + '%';
       bar.querySelector('.mfill').style.width = clamp(f.meter, 0, 100) + '%';
+      bar.querySelector('.bfill').style.width = clamp(f.beamE * 100, 0, 100) + '%';
+      bar.classList.toggle('beamReady', f.beamE >= 1);
       const full = f.meter >= 100;
       if (full && !bar.classList.contains('full') && i === 0) G.audio && G.audio.sting('super');
       bar.classList.toggle('full', full);
@@ -389,7 +404,7 @@ export class HUD {
       this.speechT -= realDt;
       const f = this.speaker;
       f.model.headWorld(_v);
-      _v.y += 0.6;
+      _v.y += 10;
       _v.project(G.camera);
       const sp = this.el.speech;
       if (_v.z < 1 && Math.abs(_v.x) < 1.2 && Math.abs(_v.y) < 1.2) {

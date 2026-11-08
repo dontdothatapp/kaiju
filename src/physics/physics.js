@@ -96,6 +96,13 @@ export class Physics {
     return b;
   }
 
+  // kaiju body: an upright capsule that shoves debris (and cars) out of the way
+  kinematicCapsule(halfHeight, radius) {
+    const b = this.world.createRigidBody(this.R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -200, 0));
+    this.world.createCollider(this.R.ColliderDesc.capsule(halfHeight, radius).setCollisionGroups(CG.char), b);
+    return b;
+  }
+
   step(dt) {
     if (dt <= 0) return;
     const t0 = performance.now();

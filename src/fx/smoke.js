@@ -100,8 +100,8 @@ function smokeMaterial(translucent) {
         #else
           float vis = smoothstep(1.5, 4.5, vCamD);
         #endif
-        vis *= segFade(vWP, cameraPosition, uFocusA, 4.5, 0.85);
-        vis *= segFade(vWP, cameraPosition, uFocusB, 3.5, 0.85);
+        vis *= segFade(vWP, cameraPosition, uFocusA, 24.0, 0.85);
+        vis *= segFade(vWP, cameraPosition, uFocusB, 18.0, 0.85);
         #ifdef TRANSLUCENT
           float alpha = 0.5 * vis * min(1.0, age * 12.0) * (1.0 - smoothstep(0.7, 0.98, rim));
           if (alpha < 0.01) discard;

@@ -414,7 +414,7 @@ export function generateRealCity(D, scene, map, seed, quality) {
   items.push(...empireState(map));
   addSkylineMesh(scene, D.material, items, rng);
 
-  // where the fighters land at the start of a round (the title camera orbits the Heir's spot),
+  // where the fighters land at the start of a round (the title camera orbits the player's spot),
   // what the establishing shot looks at, and its location card
   const at = ([x, z], y = 0) => new THREE.Vector3(x, y, z);
   const landing = { heir: at(map.landing.heir), patriarch: at(map.landing.patriarch) };

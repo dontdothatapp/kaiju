@@ -11,6 +11,13 @@ const WORDS = {
   ground: ['THOOOM!', 'KA-THUD!', 'BOOOM!'],
   parry: ['PARRY!'],
   block: ['TINK!', 'KLANG!'],
+  slash: ['SHING!', 'ZANG!', 'SLASH!'],
+  throw: ['HEAVE!', 'WHOOMPH!', 'YAAARGH!'],
+  finish: ['KA-BOOOOM!', 'KRA-KA-BOOM!'],
+  dive: ['WHOOOSH!'],
+  beam: ['ZZRAAAK!'],
+  super: ['FINISH HIM!'],
+  boom: ['KA-BOOM!', 'BOOOOM!', 'KABLAM!'],
 };
 const SCHEMES = [
   { fill: '#ffe23d', stroke: '#e2231a' },
@@ -66,10 +73,11 @@ export class ComicText {
     this.cooldown = 0;
   }
 
-  pop(kind, pos, size = 1, camera) {
-    if (this.cooldown > 0 && kind !== 'parry') return;
+  // text: say this instead of a word from the kind's list (move names: "ATOMIC BREATH!")
+  pop(kind, pos, size = 1, camera, text = null) {
+    if (this.cooldown > 0 && kind !== 'parry' && !text) return;
     this.cooldown = 0.12;
-    const word = pick(WORDS[kind] || WORDS.heavy);
+    const word = text || pick(WORDS[kind] || WORDS.heavy);
     const scheme = pick(SCHEMES);
     const { tex, aspect } = wordTexture(word, scheme);
     let it = this.items.find((x) => x.t >= x.life) || this.items.reduce((a, b) => (a.t / a.life > b.t / b.life ? a : b));

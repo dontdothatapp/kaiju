@@ -22,15 +22,15 @@ export class Boundary {
         uniform vec3 uA, uB, uColor; uniform float uTime; varying vec3 vW;
         float fieldPatch(vec3 p) {
           float d = distance(vW, p);
-          return 1.0 - smoothstep(6.0, 34.0, d);
+          return 1.0 - smoothstep(30.0, 120.0, d);
         }
         void main() {
           float a = max(fieldPatch(uA), fieldPatch(uB) * 0.7);
           if (a < 0.01) discard;
           vec2 uv = vec2(vW.x + vW.z, vW.y);
-          vec2 g = abs(fract(uv / 3.0 - 0.5) - 0.5) / max(fwidth(uv / 3.0), vec2(1e-4));
+          vec2 g = abs(fract(uv / 9.0 - 0.5) - 0.5) / max(fwidth(uv / 9.0), vec2(1e-4));
           float line = 1.0 - min(min(g.x, g.y), 1.0);
-          float scan = 0.5 + 0.5 * sin(vW.y * 0.6 - uTime * 6.0);
+          float scan = 0.5 + 0.5 * sin(vW.y * 0.2 - uTime * 6.0);
           gl_FragColor = vec4(uColor * (line * 1.1 + 0.1 + scan * 0.08) * a, 1.0);
         }`,
     });

@@ -1,75 +1,113 @@
-// Move data. Times in seconds (60 fps frames in comments). Each move drives every feedback
-// channel from a single `fx` strength so the juice scales consistently with the hit.
-//   hitstop tiers (KOF/Smash-style): light ~4-5f, heavy ~9-12f, launchers 14-20f
+// Move data, at kaiju scale: the fighters are ~47 m tall, so ranges and lunges are in tens of
+// metres and every swing takes a beat longer than a person's would. Times in seconds. Each move
+// drives every feedback channel from a single `fx` strength so the juice scales with the hit.
+//   hitstop tiers: light ~6f, heavy ~12f, launchers 14-20f (heavier than a human fighter)
+//   limb: what sweeps through buildings during the active frames ('L', 'R', 'both', 'tail',
+//   'head', 'foot', 'body'); launch: knockback speed in m/s (they fly, then gravity wins)
 export const MOVES = {
   jab: {
-    pose: ['jabW', 'jabS'], side: 'L', startup: 0.075, active: 0.06, recovery: 0.17,
-    dmg: 3.5, kb: 7, hitstun: 0.36, hitstop: 0.07, fx: 0.35, lunge: 5.5, range: 2.5,
-    next: 'cross', chain: 0.3, meter: 4, sound: 'light',
+    pose: ['jabW', 'jabS'], side: 'L', limb: 'L', startup: 0.13, active: 0.08, recovery: 0.24,
+    dmg: 4, kb: 9, hitstun: 0.5, hitstop: 0.09, fx: 0.4, lunge: 8, range: 25,
+    next: 'cross', chain: 0.34, meter: 4, sound: 'light',
   },
   cross: {
-    pose: ['crossW', 'crossS'], side: 'R', startup: 0.08, active: 0.06, recovery: 0.18,
-    dmg: 4, kb: 8, hitstun: 0.38, hitstop: 0.075, fx: 0.42, lunge: 5, range: 2.5,
-    next: 'hook', chain: 0.3, meter: 4, sound: 'light',
+    pose: ['crossW', 'crossS'], side: 'R', limb: 'R', startup: 0.14, active: 0.08, recovery: 0.26,
+    dmg: 4.5, kb: 10, hitstun: 0.52, hitstop: 0.1, fx: 0.48, lunge: 8, range: 25,
+    next: 'hook', chain: 0.34, meter: 4, sound: 'light',
   },
   hook: {
-    pose: ['hookW', 'hookS'], side: 'L', startup: 0.1, active: 0.07, recovery: 0.2,
-    dmg: 5, kb: 10, hitstun: 0.42, hitstop: 0.09, fx: 0.55, lunge: 5, range: 2.6,
-    next: 'smash', chain: 0.32, meter: 5, sound: 'mid',
+    pose: ['hookW', 'hookS'], side: 'L', limb: 'L', startup: 0.19, active: 0.09, recovery: 0.3,
+    dmg: 6, kb: 13, hitstun: 0.58, hitstop: 0.12, fx: 0.62, lunge: 8, range: 26,
+    next: 'smash', chain: 0.36, meter: 5, sound: 'mid',
   },
+  // the combo ender: KAISER HAMMER (both fists down) / GORRAX's tail whip (a full spin)
   smash: {
-    pose: ['smashW', 'smashS'], side: 'R', startup: 0.15, active: 0.08, recovery: 0.36,
-    dmg: 9, launch: 78, up: 0.12, hitstop: 0.16, fx: 1.0, lunge: 6, range: 2.8,
-    meter: 8, sound: 'heavy', comic: 'heavy', slowmo: [0.35, 0.18],
+    pose: ['smashW', 'smashS'], side: 'R', limb: 'both', startup: 0.3, active: 0.14, recovery: 0.5,
+    dmg: 10, launch: 44, up: 0.4, hitstop: 0.2, fx: 1.05, lunge: 9, range: 27,
+    meter: 8, sound: 'heavy', comic: 'heavy', slowmo: [0.35, 0.22],
   },
   heavy: {
-    pose: ['chargeW', 'chargeS'], side: 'R', startup: 0.16, active: 0.08, recovery: 0.34,
-    dmg: 9, launch: 70, up: 0.1, hitstop: 0.15, fx: 0.95, lunge: 7, range: 2.8,
-    meter: 7, sound: 'heavy', comic: 'heavy', armor: false,
+    pose: ['chargeW', 'chargeS'], side: 'R', limb: 'R', startup: 0.28, active: 0.1, recovery: 0.46,
+    dmg: 10, launch: 42, up: 0.35, hitstop: 0.18, fx: 0.95, lunge: 12, range: 27,
+    meter: 7, sound: 'heavy', comic: 'heavy',
   },
   // charged versions scale with `charge` (0..1) at runtime
   heavyCharged: {
-    pose: ['chargeW', 'chargeS'], side: 'R', startup: 0.07, active: 0.09, recovery: 0.42,
-    dmg: 11, dmgCharge: 15, launch: 85, launchCharge: 110, up: 0.08, hitstop: 0.16, hitstopCharge: 0.16,
-    fx: 1.1, fxCharge: 0.7, lunge: 8, lungeCharge: 16, range: 3.0, meter: 9, sound: 'huge', comic: 'huge',
+    pose: ['chargeW', 'chargeS'], side: 'R', limb: 'R', startup: 0.12, active: 0.12, recovery: 0.55,
+    dmg: 12, dmgCharge: 14, launch: 48, launchCharge: 34, up: 0.3, hitstop: 0.18, hitstopCharge: 0.14,
+    fx: 1.1, fxCharge: 0.7, lunge: 12, lungeCharge: 22, range: 28, meter: 9, sound: 'huge', comic: 'huge',
     guardBreak: 0.7, impactFrame: 0.8, slowmo: [0.25, 0.35],
   },
   uppercut: {
-    pose: ['upperW', 'upperS'], side: 'R', startup: 0.13, active: 0.08, recovery: 0.34,
-    dmg: 8, launch: 75, launchCharge: 60, dir: 'up', hitstop: 0.14, fx: 0.95, lunge: 5, range: 2.8,
+    pose: ['upperW', 'upperS'], side: 'R', limb: 'R', startup: 0.22, active: 0.1, recovery: 0.46,
+    dmg: 9, launch: 38, dir: 'up', hitstop: 0.16, fx: 0.95, lunge: 9, range: 26,
     meter: 7, sound: 'heavy', comic: 'heavy',
   },
-  meteor: {
-    pose: ['meteorW', 'meteorS'], side: 'R', startup: 0.16, active: 0.09, recovery: 0.36,
-    dmg: 10, launch: 95, launchCharge: 70, dir: 'down', hitstop: 0.17, fx: 1.05, lunge: 6, range: 3.0,
-    meter: 8, sound: 'huge', comic: 'huge', slowmo: [0.35, 0.15],
+  // STOMP: a quake. Knocks a grounded opponent off his feet anywhere near; jump it.
+  stomp: {
+    pose: ['stompW', 'stompS'], side: 'R', limb: 'foot', startup: 0.42, active: 0.1, recovery: 0.55,
+    dmg: 7, quake: 52, hitstop: 0.16, fx: 0.9, lunge: 4, range: 52,
+    meter: 6, sound: 'heavy', comic: 'ground',
   },
-  // SKYWARD finisher: the dive from above (fighter.js _skydive) ends in this, spiking him down
-  skyStrike: {
-    pose: ['meteorW', 'meteorS'], side: 'R', startup: 0.05, active: 0.1, recovery: 0.42,
-    dmg: 13, launch: 115, dir: 'down', hitstop: 0.2, fx: 1.3, lunge: 5, range: 3.4,
-    meter: 9, sound: 'huge', comic: 'huge', guardBreak: 0.8, impactFrame: 0.9, slowmo: [0.25, 0.35],
+  // running shoulder tackle / headlong charge
+  tackle: {
+    pose: ['tackle', 'tackle'], side: 'L', limb: 'body', startup: 0.08, active: 0.26, recovery: 0.5,
+    dmg: 9, launch: 44, up: 0.3, hitstop: 0.17, fx: 1.0, lunge: 22, range: 26,
+    meter: 7, sound: 'heavy', comic: 'heavy',
+  },
+  // from a jump: KAISER KICK / GORRAX's belly slam; spikes him into the street
+  diveSlam: {
+    pose: ['dive', 'dive'], side: 'R', limb: 'body', startup: 0.02, active: 0.12, recovery: 0.5,
+    dmg: 12, launch: 40, dir: 'down', hitstop: 0.2, fx: 1.25, lunge: 4, range: 30,
+    meter: 9, sound: 'huge', comic: 'huge', guardBreak: 0.8, impactFrame: 0.9, slowmo: [0.28, 0.3],
   },
   grab: {
-    pose: ['grab', 'grab'], side: 'R', startup: 0.12, active: 0.1, recovery: 0.42,
-    dmg: 0, grab: true, hitstop: 0.06, fx: 0.3, lunge: 7, range: 3.0, meter: 0, sound: 'grab',
+    pose: ['grab', 'grab'], side: 'R', limb: null, startup: 0.18, active: 0.12, recovery: 0.55,
+    dmg: 0, grab: true, hitstop: 0.06, fx: 0.3, lunge: 10, range: 27, meter: 0, sound: 'grab',
   },
   superRush: {
-    pose: ['grab', 'hold'], side: 'L', startup: 0.2, active: 0.12, recovery: 0.5,
-    dmg: 0, superGrab: true, hitstop: 0.1, fx: 0.6, lunge: 18, range: 3.4, meter: 0, sound: 'grab',
+    pose: ['grab', 'hold'], side: 'L', limb: null, startup: 0.28, active: 0.16, recovery: 0.6,
+    dmg: 0, superGrab: true, hitstop: 0.1, fx: 0.6, lunge: 34, range: 29, meter: 0, sound: 'grab',
   },
 };
 
+// GORRAX's versions of the shared moves (same slots, different reach / feel)
+const MOVE_MODS = {
+  gorrax: {
+    hook: { limb: 'head', range: 27, dmg: 6.5 },                     // the bite
+    smash: { limb: 'tail', spin: true, range: 40, startup: 0.26, active: 0.3, recovery: 0.42, launch: 46, up: 0.3 }, // tail whip
+    heavyCharged: { limb: 'both' },
+  },
+};
+
+// the move table for one fighter
+export function movesFor(def) {
+  const mods = MOVE_MODS[def.name] || {};
+  const out = {};
+  for (const [k, m] of Object.entries(MOVES)) out[k] = mods[k] ? { ...m, ...mods[k] } : m;
+  return out;
+}
+
 export const SPEED = {
-  hover: 22,
-  boost: 62,
-  dash: 95,
-  rush: 175,
-  smash: 42,     // above this you plow through buildings instead of bumping off them
-  drag: 78,      // grab-and-drag flight speed
-  throw: 115,
-  superLaunch: 190,
-  homing: 150,   // a heavy released out of reach flies at him first
-  sky: 130,      // SKYWARD climb
-  dive: 185,     // ... and the dive back down
+  run: 31,       // hold DASH while walking: crashes through buildings
+  dash: 34,      // tap DASH: a heavy hop to the side (i-frames)
+  jump: 36,      // leap / rocket jump
+  dive: 64,      // the slam back down on him
+  shove: 15,     // grapple: walking him through buildings
+  throw: 48,
+  gravity: 26,
+  launchGravity: 20,
+  superLaunch: 62,
+};
+
+export const BEAM = {
+  windup: 0.75,  // plates light up / the emblem charges
+  fire: 1.7,
+  recover: 0.45,
+  reach: 430,
+  radius: 8,     // hits him within this of the beam line (plus his body)
+  tick: 0.1,
+  dmg: 2.3,      // per tick
+  recharge: 9,   // seconds for a full beam gauge
+  turn: 0.75,    // rad/s the beam tracks him (and you sweep it with left / right)
 };

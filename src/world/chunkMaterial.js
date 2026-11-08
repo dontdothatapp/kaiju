@@ -10,7 +10,7 @@ export const STYLE = { GLASS: 0, OFFICE: 1, BRICK: 2, STRIP: 3, SLAB: 4, CONCRET
 export const chunkUniforms = {
   uFocus: { value: new THREE.Vector3() },     // player position (see-through tunnel)
   uFocus2: { value: new THREE.Vector3() },    // opponent position
-  uFadeDist: { value: 7.0 },
+  uFadeDist: { value: 22.0 },
   uTime: { value: 0 },
   // render/weather.js: share of windows lit from inside (dusk, night), their colour, and how
   // much the blown-out windows around an impact burn
@@ -104,9 +104,10 @@ export function createChunkMaterial() {
             if (cd < uFadeDist && cd / uFadeDist < th) discard;
             float t;
             float d = segDist(vWPos, cameraPosition, uFocus, t);
-            if (t < 0.93 && d < 3.2 && (d / 3.2) < th * 0.9 + 0.05) discard;
+            // kaiju scale: a tunnel the width of a body from the camera to each fighter's chest
+            if (t < 0.9 && d < 26.0 && (d / 26.0) < th * 0.9 + 0.05) discard;
             float d2 = segDist(vWPos, cameraPosition, uFocus2, t);
-            if (t < 0.9 && d2 < 2.4 && (d2 / 2.4) < th * 0.9 + 0.05) discard;
+            if (t < 0.86 && d2 < 20.0 && (d2 / 20.0) < th * 0.9 + 0.05) discard;
           }
       `)
       .replace('#include <color_fragment>', /* glsl */`

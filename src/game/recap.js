@@ -20,7 +20,6 @@ const BUDGET = 26;    // seconds of film, give or take (a KO or a collapse may s
 const MAX_CLIPS = 6;
 // slow motion at each kind of moment (playback speed at the peak)
 const SLOW = { ko: 0.16, super: 0.2, skydive: 0.22, throw: 0.3, launch: 0.32, smash: 0.42, slam: 0.36, collapse: 0.62, train: 0.36 };
-const WHO = ['THE HEIR', 'THE PATRIARCH'];
 const AFFINE = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
 
 const _m = new THREE.Matrix4();
@@ -135,16 +134,16 @@ function caption(clip) {
   const name = b.name ? b.name.toUpperCase() : '';
   const title = {
     collapse: name ? `${name} COMES DOWN` : 'BUILDING DOWN',
-    smash: name ? `THROUGH ${name}` : 'THROUGH A SKYSCRAPER',
+    smash: name ? `THROUGH ${name}` : 'THROUGH A BUILDING',
     ko: b.final ? 'THE FINAL BLOW' : 'K.O.',
-    skydive: 'FROM THE SKY',
+    skydive: 'FROM ABOVE',
     super: 'SUPER',
     train: 'THE TRAIN!',
-    throw: 'THROWN ACROSS TOWN',
+    throw: 'HURLED ACROSS TOWN',
     slam: 'INTO THE STREET',
-    launch: 'SENT FLYING',
+    launch: 'KNOCKED FLAT',
   }[b.kind];
-  const by = WHO[b.by];
+  const by = b.by >= 0 && G.fighters[b.by] ? G.fighters[b.by].name : '';
   return [title, `ROUND ${clip.round}${by ? ' · ' + by : ''}`];
 }
 
@@ -444,7 +443,7 @@ export class Recap {
     this.shot = this._shot(g, prev);
     if (newClip) {
       const [title, sub] = caption(g.clip);
-      if (this.i === 0) { G.hud.recapCard('MATCH RECAP', `${WHO[0]} VS ${WHO[1]}`, true); this.cardAt = this.realT + 1.7; this.card = [title, sub]; }
+      if (this.i === 0) { G.hud.recapCard('MATCH RECAP', `${G.fighters[0].name} VS ${G.fighters[1].name}`, true); this.cardAt = this.realT + 1.7; this.card = [title, sub]; }
       else { G.hud.recapCard(title, sub); this.card = null; G.post.flashScreen(0.35); }
     }
     G.hud.recapTag(g.again ? 'ANOTHER ANGLE' : 'REPLAY');
@@ -490,7 +489,7 @@ export class Recap {
       else if (fn.kind === 'shock' && fn.name !== 'ring' && e.d !== undefined) {
         // a hit flash a few metres from this lens would white out the frame, and slow motion
         // would hold it there: size it for this camera, keep it as brief as it was live
-        const a = e.a.slice(), near = (d) => clamp(d / 14, 0.3, 1);
+        const a = e.a.slice(), near = (d) => clamp(d / 70, 0.35, 1);
         a[1] *= near(G.camera.position.distanceTo(a[0])) / near(e.d);
         if (a[3] !== undefined) a[3] *= Math.max(0.3, this.speed);
         fn.play(a);
@@ -502,9 +501,9 @@ export class Recap {
     this.shot.update(T1, T1 - T0);
     this._camera(realDt);
     const p = G.player.model.root.position, b = G.bot.model.root.position;
-    chunkUniforms.uFocus.value.copy(p);
-    chunkUniforms.uFocus2.value.copy(b);
-    G.fx.smoke.setFocus(p, b);
+    chunkUniforms.uFocus.value.copy(p).setY(p.y + G.player.H * 0.2);
+    chunkUniforms.uFocus2.value.copy(b).setY(b.y + G.bot.H * 0.2);
+    G.fx.smoke.setFocus(chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
     followShadow(G.sun, this.cam.look);
     if (T1 >= g.tb - 1e-6) this._next();
   }
@@ -518,7 +517,7 @@ export class Recap {
     const c = G.camera, k = this.cam;
     this.trauma = Math.max(0, this.trauma - realDt * 1.5);
     const sh = this.trauma * this.trauma, t = this.realT * 22;
-    c.position.copy(k.pos).add(_v.set(noise1(t), noise1(t + 37), noise1(t + 71)).multiplyScalar(sh * 0.9));
+    c.position.copy(k.pos).add(_v.set(noise1(t), noise1(t + 37), noise1(t + 71)).multiplyScalar(sh * 3));
     c.lookAt(k.look);
     if (c.fov !== k.fov) { c.fov = k.fov; c.updateProjectionMatrix(); }
   }
@@ -561,7 +560,7 @@ export class Recap {
 
   solid(pos, r, T) {
     const gh = G.ground.heightAt(pos.x, pos.z);
-    if (pos.y < gh + 0.8) return true;
+    if (pos.y < gh + 2) return true;
     if (G.trees && pos.y < gh + 11) {
       for (const t of G.trees.spots) if (t.alive && Math.hypot(t.x - pos.x, t.z - pos.z) < 3.9 * t.s + r) return true;
     }
@@ -573,15 +572,15 @@ export class Recap {
   // under a roof (inside a building): a dark, confusing place for a camera
   covered(pos, T) {
     const p = pos.clone();
-    for (let h = 4; h <= 40; h += 6) if (this.solid(p.set(pos.x, pos.y + h, pos.z), 1.2, T)) return true;
+    for (let h = 8; h <= 80; h += 10) if (this.solid(p.set(pos.x, pos.y + h, pos.z), 2.5, T)) return true;
     return false;
   }
 
   // nothing standing between a and b (stops `short` metres before b); `r` widens the sight line
-  clear(a, b, T, short = 3, r = 1.1) {
+  clear(a, b, T, short = 20, r = 3) {
     const d = new THREE.Vector3().subVectors(b, a), len = d.length();
     d.divideScalar(len || 1);
-    const p = new THREE.Vector3(), step = Math.max(3, r * 1.5);
+    const p = new THREE.Vector3(), step = Math.max(6, r * 1.5);
     for (let s = 2; s < len - short; s += step) if (this.solid(p.copy(a).addScaledVector(d, s), r, T)) return false;
     return true;
   }
@@ -593,7 +592,7 @@ export class Recap {
     offsets.forEach((off, n) => {
       const pos = place(off);
       let score = -n * 0.5;
-      if (this.solid(pos, 2, T)) score -= 100;
+      if (this.solid(pos, 4, T)) score -= 100;
       if (!this.clear(pos, target, T)) score -= 30;
       if (this.covered(pos, T)) score -= 15;
       if (score > bestScore) { bestScore = score; best = pos; }
@@ -614,10 +613,10 @@ export class Recap {
     const mid = (T, out) => {
       const A = this.at(ai, T, out), B = this.at(vi, T, V());
       const d = A.distanceTo(B);
-      return A.lerp(B, d < 24 ? 0.5 : 12 / d);
+      return A.lerp(B, d < 120 ? 0.5 : 60 / d);
     };
     const keepClear = (pos, T) => {
-      for (let n = 0; n < 12 && this.solid(pos, 1.5, T); n++) pos.y += 3;
+      for (let n = 0; n < 12 && this.solid(pos, 3, T); n++) pos.y += 6;
       return pos;
     };
     const AROUND = [0, -0.6, 0.6, Math.PI, Math.PI - 0.6, Math.PI + 0.6, -1.3, 1.3];
@@ -632,12 +631,12 @@ export class Recap {
         dir.normalize();
         const side = V().crossVectors(dir, UP);
         const base = Math.atan2(side.z, side.x) + (g.reverse ? Math.PI : 0);
-        const dist = g.reverse ? 6.5 : 9, h = g.reverse ? 0.5 : 1.6;
+        const dist = g.reverse ? 75 : 100, h = g.reverse ? 0 : 12;
         const pos0 = this.choose(ring(p, dist, h, base), p, b.t, AROUND);
         const look = V();
         return {
           update: (T) => {
-            cam.pos.copy(pos0).addScaledVector(dir, (T - T0) * 0.8);
+            cam.pos.copy(pos0).addScaledVector(dir, (T - T0) * 6);
             // on the two of them as they close in, then after him as he flies
             const follow = clamp((T - b.t) / 0.6, 0, 0.65), closing = clamp((b.t - T) / 0.6, 0, 1) * 0.7;
             look.copy(p).lerp(follow > 0 ? this.at(vi, T, V()) : mid(T, V()), follow || closing);
@@ -661,17 +660,17 @@ export class Recap {
         let first = true, opt = 0, checkT = -1;
         // alongside him; if a wall or a roof is in the way, the other side; then chasing behind
         const spot = (o, P, side, fast, out) => {
-          if (o === 2) return out.copy(P).addScaledVector(dS, -11).addScaledVector(UP, 3.5);
-          return out.copy(P).addScaledVector(side, (o ? -1 : 1) * (9 + 5 * fast)).addScaledVector(UP, 3).addScaledVector(dS, -4 * fast);
+          if (o === 2) return out.copy(P).addScaledVector(dS, -95).addScaledVector(UP, 30);
+          return out.copy(P).addScaledVector(side, (o ? -1 : 1) * (80 + 30 * fast)).addScaledVector(UP, 20).addScaledVector(dS, -25 * fast);
         };
-        const bad = (q, P, T) => this.solid(q, 1.5, T) || this.covered(q, T) || !this.clear(q, P, T, 2);
+        const bad = (q, P, T) => this.solid(q, 3, T) || this.covered(q, T) || !this.clear(q, P, T, 20);
         return {
           update: (T, dT) => {
             const P = this.at(vi, T, V()), vel = this.at(vi, T, V(), true);
             const flat = V().set(vel.x, 0, vel.z);
             if (flat.lengthSq() > 25) dS.lerp(flat.normalize(), 1 - Math.exp(-4 * dT)).normalize();
             const side = V().crossVectors(dS, UP).multiplyScalar(sign);
-            const fast = clamp(vel.length() / 60, 0, 1);
+            const fast = clamp(vel.length() / 40, 0, 1);
             spot(opt, P, side, fast, desired);
             if (T - checkT > 0.1 && bad(desired, P, T)) {
               checkT = T;
@@ -681,7 +680,7 @@ export class Recap {
             keepClear(desired, T);
             if (first) { pos.copy(desired); first = false; } else pos.lerp(desired, 1 - Math.exp(-9 * dT));
             cam.pos.copy(pos);
-            cam.look.copy(P).addScaledVector(vel, 0.04);
+            cam.look.copy(P).addScaledVector(vel, 0.3);
             cam.fov = fov(50);
           },
         };
@@ -689,14 +688,14 @@ export class Recap {
       // wide, slowly circling the two of them with the city around
       case 'orbit': {
         const c = mid(T0, V());
-        const r = clamp(this.at(0, T0, V()).distanceTo(this.at(1, T0, V())) * 0.7 + 13, 15, 42);
-        const h = 3 + r * 0.2;
+        const r = clamp(this.at(0, T0, V()).distanceTo(this.at(1, T0, V())) * 0.8 + 100, 120, 280);
+        const h = 10 + r * 0.25;
         const to = V().subVectors(G.layout.vista || V(), c);
         const base = Math.atan2(-to.z, -to.x); // the skyline (the Empire State) behind them
         let a0 = 0, best = -Infinity;
         for (const a of AROUND.map((x) => x * 0.6)) {
           const p = ring(c, r, h, base)(a);
-          const s = (this.solid(p, 2, T0) ? -100 : 0) + (this.clear(p, c, T0) ? 0 : -30) + (this.covered(p, T0) ? -15 : 0) - Math.abs(a);
+          const s = (this.solid(p, 4, T0) ? -100 : 0) + (this.clear(p, c, T0) ? 0 : -30) + (this.covered(p, T0) ? -15 : 0) - Math.abs(a);
           if (s > best) { best = s; a0 = a; }
         }
         const look = c.clone(), sign = Math.random() < 0.5 ? 1 : -1;
@@ -718,14 +717,14 @@ export class Recap {
         const base = Math.atan2(to.z, to.x) + Math.PI / 2;
         // well below them and close: they loom over the lens with the towers behind. The camera
         // keeps that offset as they move (a crane following them), never dipping into the street.
-        const pos0 = this.choose((a) => { const p = ring(c, 15, 0, base)(a); p.y = Math.max(G.ground.heightAt(p.x, p.z) + 2.2, c.y - 11); return p; }, c, T0, AROUND);
+        const pos0 = this.choose((a) => { const p = ring(c, 120, 0, base)(a); p.y = Math.max(G.ground.heightAt(p.x, p.z) + 6, c.y - 18); return p; }, c, T0, AROUND);
         const off = pos0.clone().sub(c);
         const look = c.clone(), pos = pos0.clone();
         return {
           update: (T, dT) => {
             look.lerp(mid(T, V()), 1 - Math.exp(-4 * dT));
             pos.lerp(V().addVectors(look, off), 1 - Math.exp(-3 * dT));
-            pos.y = Math.max(pos.y, G.ground.heightAt(pos.x, pos.z) + 2.2);
+            pos.y = Math.max(pos.y, G.ground.heightAt(pos.x, pos.z) + 6);
             keepClear(pos, T);
             cam.pos.copy(pos);
             cam.look.copy(look);
@@ -736,7 +735,7 @@ export class Recap {
       // the tower coming down, like news footage: from a helicopter above the roofs around it
       // (in Midtown, anything lower stares at the building next door)
       case 'tower': {
-        const s = b.struct || { x: b.pos.x, z: b.pos.z, y0: G.ground.heightAt(b.pos.x, b.pos.z), h: Math.max(30, b.pos.y * 1.5), r: 15 };
+        const s = b.struct || { x: b.pos.x, z: b.pos.z, y0: G.ground.heightAt(b.pos.x, b.pos.z), h: Math.max(60, b.pos.y * 1.5), r: 20 };
         const c = V().set(s.x, s.y0 + s.h * 0.42, s.z);
         const act = mid(T0, V());
         const base = Math.atan2(act.z - s.z, act.x - s.x);
@@ -745,7 +744,7 @@ export class Recap {
         let a0 = 0, D0 = 0, camY = 0, best = -Infinity;
         for (const dk of [1, 1.35]) for (const hk of [0, 1]) for (let n = 0; n < 16; n++) {
           const a = (n % 2 ? 1 : -1) * Math.ceil(n / 2) * (Math.PI / 8);
-          const D = clamp(s.h * 1.05 + s.r + 30, 80, 240) * dk, y = s.y0 + Math.max(s.h * 0.6, 48) + hk * 35;
+          const D = clamp(s.h * 1.05 + s.r + 60, 140, 360) * dk, y = s.y0 + Math.max(s.h * 0.6, 70) + hk * 50;
           const p = V().set(s.x + Math.cos(base + a) * D, y, s.z + Math.sin(base + a) * D);
           if (this.solid(p, 4, T0)) continue;
           const across = V().set(-Math.sin(base + a), 0, Math.cos(base + a)).multiplyScalar(s.r * 0.7);
@@ -757,7 +756,7 @@ export class Recap {
           }
           if (sc > best) { best = sc; a0 = a; D0 = D; camY = y; }
         }
-        if (best === -Infinity) { D0 = 200; camY = s.y0 + s.h + 40; }
+        if (best === -Infinity) { D0 = 280; camY = s.y0 + s.h + 60; }
         const vfov = clamp((2 * Math.atan((s.h * 0.8) / D0) * 180) / Math.PI, 32, 70);
         return {
           update: (T) => {
@@ -775,12 +774,12 @@ export class Recap {
         const p = b.pos.clone();
         const dir = (b.dir ? b.dir.clone() : V().set(1, 0, 0)).setY(0).normalize();
         const side = V().crossVectors(dir, UP);
-        const place = (sgn, back) => p.clone().addScaledVector(dir, -back).addScaledVector(side, 12 * sgn).addScaledVector(UP, 3);
-        const opts = [[1, 16], [-1, 16], [1, 8], [-1, 8], [1, 26], [-1, 26]];
+        const place = (sgn, back) => p.clone().addScaledVector(dir, -back).addScaledVector(side, 80 * sgn).addScaledVector(UP, 15);
+        const opts = [[1, 110], [-1, 110], [1, 60], [-1, 60], [1, 170], [-1, 170]];
         let pos0 = null, best = -Infinity;
         for (const [sgn, back] of opts) {
           const q = place(sgn, back);
-          const sc = (this.solid(q, 2, b.t) ? -100 : 0) + (this.clear(q, p, b.t, 2) ? 0 : -30);
+          const sc = (this.solid(q, 4, b.t) ? -100 : 0) + (this.clear(q, p, b.t, 20) ? 0 : -30);
           if (sc > best) { best = sc; pos0 = q; }
         }
         // follow him in, with the facade he's about to burst through behind
@@ -797,11 +796,11 @@ export class Recap {
         const p = b.pos.clone();
         p.y = G.ground.heightAt(p.x, p.z);
         const base = Math.random() * Math.PI * 2;
-        const pos0 = this.choose(ring(p, 17, 5, base), p.clone().setY(p.y + 1), b.t, AROUND);
+        const pos0 = this.choose(ring(p, 115, 18, base), p.clone().setY(p.y + 10), b.t, AROUND);
         return {
           update: (T) => {
             cam.pos.copy(pos0);
-            cam.look.copy(p).setY(p.y + 1.5).lerp(this.at(vi, T, V()), 0.35);
+            cam.look.copy(p).setY(p.y + 12).lerp(this.at(vi, T, V()), 0.35);
             cam.fov = fov(46);
           },
         };
@@ -817,7 +816,7 @@ export class Recap {
             const len = to.length();
             to.divideScalar(len || 1);
             const side = V().crossVectors(to, UP).normalize();
-            const desired = D.clone().addScaledVector(to, -12).addScaledVector(UP, 6).addScaledVector(side, 4);
+            const desired = D.clone().addScaledVector(to, -85).addScaledVector(UP, 30).addScaledVector(side, 25);
             keepClear(desired, T);
             if (first) { pos.copy(desired); first = false; } else pos.lerp(desired, 1 - Math.exp(-7 * dT));
             cam.pos.copy(pos);
@@ -832,16 +831,16 @@ export class Recap {
         // pulled up and back: the fallen, the winner and the wreckage around them
         const c0 = this.at(vi, T0, V());
         const base = Math.random() * Math.PI * 2;
-        const start = this.choose(ring(c0, 18, 8, base), c0, T0, AROUND);
+        const start = this.choose(ring(c0, 120, 45, base), c0, T0, AROUND);
         const a0 = Math.atan2(start.z - c0.z, start.x - c0.x);
         const look = c0.clone();
         return {
           update: (T, dT) => {
             look.lerp(this.at(vi, T, V()), 1 - Math.exp(-3 * dT));
-            const a = a0 + 0.2 * (T - T0), r = 18 + 4 * clamp((T - T0) / 4, 0, 1);
-            cam.pos.copy(look).add(V().set(Math.cos(a), 0, Math.sin(a)).multiplyScalar(r)).setY(look.y + 8 + 3 * clamp((T - T0) / 4, 0, 1));
+            const a = a0 + 0.15 * (T - T0), r = 120 + 30 * clamp((T - T0) / 4, 0, 1);
+            cam.pos.copy(look).add(V().set(Math.cos(a), 0, Math.sin(a)).multiplyScalar(r)).setY(look.y + 40 + 15 * clamp((T - T0) / 4, 0, 1));
             keepClear(cam.pos, T);
-            cam.look.copy(look).addScaledVector(UP, 0.5);
+            cam.look.copy(look).addScaledVector(UP, 5);
             cam.fov = fov(44);
           },
         };

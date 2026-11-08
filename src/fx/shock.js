@@ -60,14 +60,14 @@ export class ShockSystem {
     this.flashes = [];
     this.stars = [];
     const plane = new THREE.PlaneGeometry(2, 2);
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < 44; i++) {
       const m = new THREE.Mesh(plane, ringMat());
       m.visible = false; m.frustumCulled = false; m.renderOrder = 6;
       scene.add(m);
       this.rings.push({ m, t: 1, life: 1 });
     }
     const sph = new THREE.IcosahedronGeometry(1, 3);
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 28; i++) {
       const m = new THREE.Mesh(sph, flashMat());
       m.visible = false; m.renderOrder = 7;
       scene.add(m);

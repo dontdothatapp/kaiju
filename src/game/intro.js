@@ -1,13 +1,13 @@
 // Round openers, shot like a film. Round 1: a letterboxed aerial establishing shot of the city
-// with a location card, then the Patriarch drops out of the sky in front of his landmark and the
-// Heir lands across from him. Later rounds: a quick flyover of the wrecked arena and a double
-// landing. Any key or tap skips. Shots drive FightCamera.override and hand back to the lock-on
-// camera, which starts wide because the fighters land ~80 m apart.
+// with a location card, then the bot's kaiju crashes down out of the sky in front of his landmark
+// (shot from the street, looking up) and yours lands across from him. Later rounds: a quick
+// flyover of the wrecked arena and a double landing. Any key or tap skips. Shots drive
+// FightCamera.override and hand back to the lock-on camera.
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { clamp, UP } from '../core/math.js';
 
-const SKY = 410;         // fighters wait up here, out of shot, until their drop
+const SKY = 700;         // fighters wait up here, out of shot, until their drop
 const ease = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 
 // The city remembers, so by round 2 a landing mark is usually last round's crater (or a rubble
@@ -16,16 +16,16 @@ const ease = (t) => { t = clamp(t, 0, 1); return t * t * (3 - 2 * t); };
 function landingSpot(mark) {
   const p = new THREE.Vector3(), best = mark.clone().setY(G.ground.heightAt(mark.x, mark.z));
   let bestScore = Infinity;
-  for (let r = 0; r <= 36; r += 6) {
+  for (let r = 0; r <= 48; r += 8) {
     const n = r ? Math.round(r * 0.9) : 1;
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
       p.set(mark.x + Math.cos(a) * r, 0, mark.z + Math.sin(a) * r);
       let rough = 0;
-      for (const [dx, dz] of [[0, 0], [5, 0], [-5, 0], [0, 5], [0, -5], [3.5, 3.5], [-3.5, -3.5]]) rough = Math.max(rough, Math.abs(G.ground.heightAt(p.x + dx, p.z + dz)));
+      for (const [dx, dz] of [[0, 0], [9, 0], [-9, 0], [0, 9], [0, -9], [6, 6], [-6, -6]]) rough = Math.max(rough, Math.abs(G.ground.heightAt(p.x + dx, p.z + dz)));
       if (rough > bestScore) continue;
       let blocked = false;
-      for (let y = 2; y <= 14 && !blocked; y += 4) G.destruction.forChunksInSphere(p.setY(y), 3.5, () => { blocked = true; });
+      for (let y = 3; y <= 15 && !blocked; y += 6) G.destruction.forChunksInSphere(p.setY(y), 7, () => { blocked = true; });
       if (blocked) continue;
       const score = rough + r * 0.01; // the mark itself wins a tie
       if (score < bestScore) { bestScore = score; best.set(p.x, G.ground.heightAt(p.x, p.z), p.z); }
@@ -72,7 +72,7 @@ export class Intro {
   }
 
   _drop(f, at, height) {
-    f.pos.set(at.x, at.y + height, at.z);
+    f.pos.set(at.x, at.y + f.hipH + height, at.z);
     f.vel.set(0, -70, 0);
     f.setState('land');
     G.audio.whoosh(1, at.clone().setY(at.y + 30));
@@ -84,7 +84,8 @@ export class Intro {
     return [
       { t: 0.5, fn: () => G.hud.location(title, sub) },
       { t: 3.3, fn: () => { G.hud.location(null); this._drop(g.bot, this.pat, 230); } },
-      { t: 6.1, fn: () => this._drop(g.player, this.heir, 210) },
+      { t: 4.9, fn: () => g.bot.roar() },
+      { t: 6.4, fn: () => this._drop(g.player, this.heir, 230) },
     ];
   }
 
@@ -95,9 +96,9 @@ export class Intro {
     const vSide = new THREE.Vector3().crossVectors(toVista, UP).normalize();
     const v = (o, x, y, z) => o.clone().addScaledVector(vSide, x).addScaledVector(UP, y).addScaledVector(toVista, z);
     const d = (o, along, up, across) => o.clone().addScaledVector(dir, along).addScaledVector(UP, up).addScaledVector(side, across);
-    // tilt up toward a falling fighter, but no further than ~35 m: he drops into the frame past
+    // tilt up toward a falling kaiju, but no further than ~110 m: he drops into the frame past
     // the rooftops instead of the shot turning into empty sky
-    const track = (f, at, lift) => at.y + Math.max(lift, Math.min(35, (f.pos.y - at.y) * 0.45));
+    const track = (f, at, lift) => at.y + Math.max(lift, Math.min(110, (f.pos.y - at.y) * 0.45));
     return [
       // establishing: high over the arena, pushing in toward the skyline (the Empire State)
       {
@@ -105,24 +106,25 @@ export class Intro {
         pos: (k) => v(mid, 70, 230, -300).lerp(v(mid, 35, 135, -170), ease(k)),
         look: (k) => vista.clone().lerp(v(mid, 0, 40, 160), ease(k) * 0.55),
       },
-      // the Patriarch drops onto his mark: low angle from the street ahead of him (on the real
-      // map: Broadway, beside the Flatiron's prow), the Heir's side of town behind him
+      // the monster (or the robot) crashes down onto its mark: a low angle from the street ahead
+      // of it, looking up the way you'd see a kaiju (on the real map: Broadway, beside the
+      // Flatiron's prow), then it roars at the camera
       {
-        t0: 3.3, t1: 6.1,
-        pos: (k) => d(pat, 7 + 2 * k, 4, -14),
-        look: () => this.camLook.set(pat.x, track(g.bot, pat, 2.5), pat.z),
+        t0: 3.3, t1: 6.4,
+        pos: (k) => d(pat, 75 + 12 * k, 6, -95),
+        look: () => this.camLook.set(pat.x, track(g.bot, pat, 30), pat.z),
       },
-      // crane: high over the Heir's mark as he plummets into the frame and craters it, then down
-      // behind him to where the fight camera picks up, the Patriarch across the street
+      // crane: high over your mark as you plummet into the frame and crater it, then down behind
+      // you to where the fight camera picks up, the other one across the street
       {
-        t0: 6.1, t1: 9.0,
+        t0: 6.4, t1: 9.6,
         pos: () => {
-          const high = d(heir, -32, 24, -9), low = d(heir, -20, 7, -3);
-          return this.heirLandedAt ? high.lerp(low, ease((this.t - this.heirLandedAt) / 1.1)) : high;
+          const high = d(heir, -170, 110, -50), low = d(heir, -75, 22, 28);
+          return this.heirLandedAt ? high.lerp(low, ease((this.t - this.heirLandedAt) / 1.3)) : high;
         },
         look: () => {
-          const mark = d(heir, 2, 13, 0);
-          return this.heirLandedAt ? mark.lerp(d(mid, 0, 6, 0), ease((this.t - this.heirLandedAt) / 1.1)) : mark;
+          const mark = d(heir, 10, 45, 0);
+          return this.heirLandedAt ? mark.lerp(d(mid, 0, 26, 0), ease((this.t - this.heirLandedAt) / 1.3)) : mark;
         },
       },
     ];
@@ -143,14 +145,14 @@ export class Intro {
       // flyover of the (by now wrecked) arena
       {
         t0: 0, t1: 1.9,
-        pos: (k) => mid.clone().addScaledVector(side, 120 - 40 * k).addScaledVector(dir, -60 + 30 * k).addScaledVector(UP, 120 - 30 * ease(k)),
-        look: () => this.camLook.copy(mid).addScaledVector(UP, 10),
+        pos: (k) => mid.clone().addScaledVector(side, 240 - 60 * k).addScaledVector(dir, -120 + 50 * k).addScaledVector(UP, 170 - 40 * ease(k)),
+        look: () => this.camLook.copy(mid).addScaledVector(UP, 20),
       },
-      // both land: wide two-shot from the side, above the elevated train
+      // both land: a wide, low two-shot from the side
       {
         t0: 1.9, t1: 3.8,
-        pos: (k) => mid.clone().addScaledVector(side, 50 + 4 * k).addScaledVector(UP, 17),
-        look: () => this.camLook.copy(mid).addScaledVector(UP, 3),
+        pos: (k) => mid.clone().addScaledVector(side, 170 + 12 * k).addScaledVector(UP, 26),
+        look: () => this.camLook.copy(mid).addScaledVector(UP, 24),
       },
     ];
   }
@@ -168,7 +170,7 @@ export class Intro {
       if (this.full) setTimeout(() => this.active && g.brain.say('start'), 450);
     }
     // time slows as the hero comes in (at 150 m/s he'd cross the shot in a blink), then lands
-    if (this.full && g.player.state === 'land' && g.player.pos.y - this.heir.y < 70 && !this.heirSlowed) {
+    if (this.full && g.player.state === 'land' && g.player.pos.y - this.heir.y < 160 && !this.heirSlowed) {
       this.heirSlowed = true;
       G.time.slowmo(0.22, 0.35, 0.3);
     }
@@ -183,7 +185,7 @@ export class Intro {
     if (look !== this.camLook) this.camLook.copy(look);
     // a scripted spot can land inside a building (or under the train) on some map: lift it clear
     let inside = 0;
-    G.destruction.forChunksInSphere(this.camPos, 2.5, (id) => { inside = Math.max(inside, G.destruction.defs[id].c.y + 4); });
+    G.destruction.forChunksInSphere(this.camPos, 4, (id) => { inside = Math.max(inside, G.destruction.defs[id].c.y + 6); });
     if (inside) this.camPos.y = Math.max(this.camPos.y, inside);
     // the last shot holds until both have landed (slow motion stretches the arrival), plus a beat
     const landed = g.player.state === 'landed' && g.bot.state === 'landed';
@@ -203,7 +205,7 @@ export class Intro {
     // skipped before someone landed: put them on their marks
     for (const [f, at] of [[g.player, this.heir], [g.bot, this.pat]]) {
       if (f.state === 'landed') continue;
-      f.pos.set(at.x, at.y + 0.6, at.z);
+      f.pos.set(at.x, at.y + f.hipH, at.z);
       f.vel.set(0, 0, 0);
       f.setState('landed');
     }

@@ -15,8 +15,8 @@ const CATS = [
   { id: 'impacts', title: 'Impacts', blurb: 'ElevenLabs sound effects; each one\'s prompt and cost is under its card.' },
   { id: 'destruction', title: 'Destruction', blurb: 'ElevenLabs sound effects for the breakable city. Small or big is picked by how much breaks.' },
   { id: 'movement', title: 'Movement', blurb: 'ElevenLabs sound effects for attacks, dashes and flight.' },
-  { id: 'voHeir', title: 'Voices · The Heir', blurb: 'An ElevenLabs voice designed for the Heir: a fiery young shonen hero. A line with several takes plays one at random.' },
-  { id: 'voPatriarch', title: 'Voices · The Patriarch', blurb: 'An ElevenLabs voice designed for the Patriarch: a deep, cold villain. A line with several takes plays one at random.' },
+  { id: 'voHeir', title: 'Voices · KAISER-OH\'s pilot', blurb: 'An ElevenLabs voice: a fiery young shonen hero, shouting from the cockpit. A line with several takes plays one at random.' },
+  { id: 'voPatriarch', title: 'Voices · GORRAX', blurb: 'An ElevenLabs voice: a deep, cold villain. In the game it plays at ~0.6x speed, so it comes out as growls and roars. A line with several takes plays one at random.' },
   { id: 'music', title: 'Music & ambience', blurb: 'Looped in game. Woffels, Metal OST (CC BY); ambience by ElevenLabs.' },
   { id: 'menu', title: 'Menu', blurb: 'uisfx (CC0).' },
   { id: 'punchLight', title: 'Punches · light', blurb: 'One is picked at random for each light hit.', compact: true },
@@ -77,7 +77,7 @@ const VOICE_LINES = {
   getup: ['Getting up', 'Getting up from a knockdown; sometimes on catching yourself in the air'],
   ko: ['K.O.', 'Being knocked out'],
   win: ['Victory', 'Winning the match'],
-  taunt: ['Taunt', 'Hovering over the downed Heir'],
+  taunt: ['Taunt', 'GORRAX roaring (slowed way down in the game)'],
 };
 const VOICE_CATS = { heir: 'voHeir', patriarch: 'voPatriarch' };
 const order = (s) => {
@@ -85,7 +85,7 @@ const order = (s) => {
   return i < 0 ? 1e9 : i;
 };
 const MUSIC = Object.keys(KNOWN).filter((f) => f.startsWith('music/'));
-const PICKS_KEY = 'bloodline-sound-picks';
+const PICKS_KEY = 'megaton-sound-picks';
 
 const describe = (file) => {
   const k = KNOWN[file];

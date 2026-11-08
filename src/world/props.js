@@ -187,9 +187,9 @@ export class Props {
   }
 
   // fighters plowing through traffic
-  sweep(pos, vel, radius) {
+  sweep(pos, vel, radius, minSpeed = 25) {
     const sp = vel.length();
-    if (sp < 25) return;
+    if (sp < minSpeed) return;
     for (const car of this.cars) {
       if (!car.alive) continue;
       const t = car.body.translation();

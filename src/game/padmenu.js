@@ -11,7 +11,7 @@ const SCREENS = [
   ['#pause', '.p-box button', '#resumeBtn'],
   ['#tutEnd', '.p-box button', '#teFight'],
   ['#results', '.r-btns button', '#rRematch'],
-  ['#title', '.t-diff button, .t-opts label, #fightBtn, .t-more button', '#fightBtn'],
+  ['#title', '.t-vs .pick, .t-diff button, .t-opts label, #fightBtn, .t-more button', '#fightBtn'],
 ];
 const DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
 const shown = (el) => el.getClientRects().length > 0;

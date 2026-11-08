@@ -23,6 +23,7 @@ export const G = {
     quality: 'high',
     gore: true,
     difficulty: 'sparring',
+    playAs: 'kaiser',
     shake: 1.0,
   },
   stats: { chunksDestroyed: 0, buildingsCollapsed: 0 },
@@ -32,26 +33,29 @@ const params = new URLSearchParams(location.search);
 // One-shot settings handed over a reload (works inside sandboxed frames where the URL can't change).
 function takeStored() {
   try {
-    const v = JSON.parse(localStorage.getItem('bloodline-next') || 'null');
-    localStorage.removeItem('bloodline-next');
+    const v = JSON.parse(localStorage.getItem('megaton-next') || 'null');
+    localStorage.removeItem('megaton-next');
     return v || {};
   } catch (e) { return {}; }
 }
 export function storedQuality() {
-  try { return localStorage.getItem('bloodline-quality'); } catch (e) { return null; }
+  try { return localStorage.getItem('megaton-quality'); } catch (e) { return null; }
+}
+export function storedKaiju() {
+  try { return localStorage.getItem('megaton-kaiju'); } catch (e) { return null; }
 }
 export function storedMap() {
-  try { return localStorage.getItem('bloodline-map'); } catch (e) { return null; }
+  try { return localStorage.getItem('megaton-map'); } catch (e) { return null; }
 }
 // v2 since golden hour became the default (2026-10-31): a pick saved under the old key, often the
 // old 'random' default, no longer overrides it
-export const WEATHER_KEY = 'bloodline-weather-v2';
+export const WEATHER_KEY = 'megaton-weather-v2';
 function storedWeather() {
   try { return localStorage.getItem(WEATHER_KEY); } catch (e) { return null; }
 }
 const next = takeStored();
 export function reloadWith(opts) {
-  try { localStorage.setItem('bloodline-next', JSON.stringify(opts)); } catch (e) { /* storage blocked */ }
+  try { localStorage.setItem('megaton-next', JSON.stringify(opts)); } catch (e) { /* storage blocked */ }
   location.reload();
 }
 export const URLP = {
@@ -68,4 +72,5 @@ export const URLP = {
   // round openers (game/intro.js); the dev / test flags skip them unless ?intro asks
   intro: params.has('intro') || !(params.has('fight') || params.has('auto') || params.has('nointro')),
   tutorial: params.has('tutorial') || !!next.tutorial, // straight into the tutorial (game/tutorial.js)
+  kaiju: next.kaiju || params.get('kaiju'),           // who you play: 'kaiser' (the robot) or 'gorrax' (the monster)
 };

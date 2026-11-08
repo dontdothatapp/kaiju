@@ -1,9 +1,9 @@
 {
-  "name": "bloodline-destruction-fighter",
+  "name": "megaton-kaiju-fighter",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Juicy superhero destruction fighter tech demo (three.js + Rapier)",
+  "description": "Kaiju destruction fighter tech demo: giant robot vs atomic lizard in a fully destructible city (three.js + Rapier)",
   "scripts": {
     "predev": "node tools/sfx-index.mjs",
     "dev": "vite",

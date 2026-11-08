@@ -1,5 +1,9 @@
 # Tech optimization backlog
 
+_Measured on Bloodline, the superhero game MEGATON was forked from. The engine (city, destruction,
+debris, weather, post FX) is unchanged; the fighters are bigger and wade through buildings, so
+expect more chunks and debris bodies per second than these numbers assume._
+
 Gameplay, feel and presentation items live in [BACKLOG.md](BACKLOG.md); this file is performance only.
 
 Measured on 2026-10-30 on an Apple M1 (Chrome, ANGLE Metal), quality `high`, Flatiron map,

@@ -1,25 +1,37 @@
-// Bot brain. Writes virtual inputs into fighter.ctrl, so bots obey exactly the same rules
-// (frame data, buffers, recoveries) as the player.
+// Bot brain. Writes virtual inputs into fighter.ctrl, so the bot kaiju obeys exactly the same
+// rules (frame data, buffers, recoveries, beam gauge) as the player.
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { rand, chance, pick, clamp, UP } from '../core/math.js';
 
 export const DIFFICULTY = {
-  // breather: how readily he breaks off after an exchange to hover over the city
-  training: { react: 9, block: 0, dodge: 0, aggression: 0, combo: [1, 1], recover: 0.2, charge: 0, grab: 0, rush: 0, superUse: 0, breather: 0, passive: true },
-  sparring: { react: 0.42, block: 0.22, dodge: 0.12, aggression: 0.38, combo: [1, 3], recover: 0.35, charge: 0.2, grab: 0.12, rush: 0.35, superUse: 0.5, breather: 0.4 },
-  brutal: { react: 0.26, block: 0.42, dodge: 0.25, aggression: 0.62, combo: [2, 4], recover: 0.65, charge: 0.32, grab: 0.2, rush: 0.75, superUse: 0.9, breather: 0.25 },
-  viltrumite: { react: 0.16, block: 0.6, dodge: 0.32, aggression: 0.82, combo: [3, 4], recover: 0.92, charge: 0.42, grab: 0.25, rush: 0.95, superUse: 1, breather: 0.12 },
+  // roar: how readily he breaks off after an exchange to roar / strike a pose
+  training: { react: 9, block: 0, dodge: 0, aggression: 0, combo: [1, 1], recover: 0.2, charge: 0, grab: 0, stomp: 0, leap: 0, beam: 0, superUse: 0, roar: 0, passive: true },
+  sparring: { react: 0.45, block: 0.22, dodge: 0.12, aggression: 0.38, combo: [1, 3], recover: 0.35, charge: 0.2, grab: 0.12, stomp: 0.12, leap: 0.12, beam: 0.35, superUse: 0.5, roar: 0.45 },
+  brutal: { react: 0.28, block: 0.42, dodge: 0.25, aggression: 0.6, combo: [2, 4], recover: 0.65, charge: 0.3, grab: 0.2, stomp: 0.2, leap: 0.2, beam: 0.6, superUse: 0.9, roar: 0.25 },
+  king: { react: 0.18, block: 0.58, dodge: 0.32, aggression: 0.8, combo: [3, 4], recover: 0.92, charge: 0.4, grab: 0.25, stomp: 0.25, leap: 0.25, beam: 0.8, superUse: 1, roar: 0.12 },
 };
+DIFFICULTY.viltrumite = DIFFICULTY.king; // old URL flag
 
+// speech bubbles, by who's talking: the monster taunts like a Saturday-morning villain, the
+// robot's pilots call it like a sentai team
 const LINES = {
-  start: ['You can\'t win this, son.', 'Let\'s see what you\'ve got.', 'Don\'t make me hurt you.', 'Listen to me!'],
-  playerDown: ['Stay down.', 'Why do you make me do this?', 'THINK!', 'Look what you made me do.', 'This city is nothing.', 'I\'m barely trying.'],
-  hurt: ['Hm. Not bad.', 'Is that all?', 'Again!', 'Ha!'],
-  low: ['Impossible...', 'You\'re stronger than I thought.', 'Enough!'],
-  win: ['You\'ll outlive all of them.', 'It didn\'t have to be this way.'],
-  heirWin: ['I\'m not you!', 'I\'ll protect this planet!'],
-  breather: ['Look at this city.', 'They\'ll rebuild. They always do.', 'Come up here, son.', 'All this, for them?', 'Catch your breath.'],
+  gorrax: {
+    start: ['This city is MINE!', 'Another tin soldier to crush!', 'GRAAAHH!', 'I will feast on your skyline!'],
+    playerDown: ['Stay down, scrap metal!', 'Hah! Pathetic!', 'Kneel before GORRAX!', 'Your city weeps!'],
+    hurt: ['You dare?!', 'Is that all?', 'GRRR...', 'A lucky blow!'],
+    low: ['Impossible!', 'No... NOOO!', 'I am... ETERNAL!'],
+    win: ['The city is MINE!', 'ROOOAAARRR!'],
+    roar: ['ROOOAAARRR!', 'GRAAAHH!', 'Look upon my city!', 'Run, little humans!'],
+  },
+  kaiser: {
+    start: ['Kaiser-Oh, ready for battle!', 'You won\'t touch this city!', 'Evacuate the area!', 'Systems online. Let\'s go!'],
+    playerDown: ['Stay down, monster!', 'Give up!', 'This city is protected!', 'Is that it?'],
+    hurt: ['Shields holding!', 'We can take it!', 'Hull breach!', 'Steady!'],
+    low: ['Power critical!', 'Reroute everything to the arms!', 'We can\'t lose here!'],
+    win: ['The city is safe!', 'Mission complete!'],
+    roar: ['Kaiser-Oh, full power!', 'We stand together!', 'Protect the city!', 'Power up!'],
+  },
 };
 
 const _p = new THREE.Vector3();
@@ -31,20 +43,16 @@ export class Brain {
     this.think = 0;
     this.plan = 'approach';
     this.strafeDir = 1;
-    this.vertOff = rand(-3, 2);
     this.comboLeft = 0;
     this.chargeHold = 0;
     this.blockHold = 0;
     this.reactT = 0;
     this.reactingTo = null;
-    this.recoverAt = 0;
-    this.followUp = 0;
+    this.diveAt = 0;
     this.talkCd = 3;
     this.lines = opts.lines !== false;
     this.wasDown = false;
-    this.breather = 0;       // seconds left hovering out of reach, above the rooftops
-    this.sinceBreather = 0;
-    this.perch = new THREE.Vector3();
+    this.sinceRoar = 0;
     this.drill = null;       // tutorial drill for the training dummy: null | 'swing' | 'keepAway'
   }
 
@@ -53,7 +61,8 @@ export class Brain {
   say(kind) {
     if (!this.lines || this.talkCd > 0 || !G.hud) return;
     this.talkCd = rand(5, 9);
-    G.hud.speech(this.f, pick(LINES[kind]));
+    const L = LINES[this.f.def.name] || LINES.gorrax;
+    G.hud.speech(this.f, pick(L[kind] || L.start));
   }
 
   update(dt) {
@@ -63,91 +72,88 @@ export class Brain {
     c.vert = 0;
     if (!f.alive || !o) { for (const a of ['block', 'heavy', 'dash']) c.release(a); return; }
 
-    const to = new THREE.Vector3().subVectors(o.pos, f.pos);
+    const to = new THREE.Vector3(o.pos.x - f.pos.x, 0, o.pos.z - f.pos.z);
     const dist = to.length();
     const dir = to.clone().divideScalar(dist || 1);
     const right = new THREE.Vector3().crossVectors(dir, UP).normalize();
 
-    // ---- being launched: tech out
-    if (f.state === 'launched') {
-      if (!this.recoverAt) this.recoverAt = f.stateT + rand(0.45, 0.9) + (chance(d.recover) ? 0 : 9);
-      if (f.stateT > this.recoverAt) { c.tap('dash'); this.recoverAt = 0; }
+    // ---- knocked down: scramble up (or lie there a moment)
+    if (f.state === 'down') { if (chance(d.recover * dt * 3)) c.tap('up'); return; }
+    if (f.state === 'launched' || f.state === 'getup' || f.state === 'grabbed' || f.state === 'superVictim' || f.state === 'hitstun' || f.state === 'stagger' || f.state === 'taunt') {
+      c.release('block'); c.release('heavy'); c.release('dash');
       return;
     }
-    this.recoverAt = 0;
-    if (f.state === 'down') { if (chance(d.recover * dt * 3)) c.tap('up'); return; }
-    if (f.state === 'grabbed' || f.state === 'superVictim' || f.state === 'hitstun' || f.state === 'stagger') { c.release('block'); c.release('heavy'); this.breather = 0; return; }
-    this.sinceBreather += dt;
+    this.sinceRoar += dt;
 
-    if (o.state === 'down' && !this.wasDown) { this.say('playerDown'); if (f.def.cape && chance(0.6)) { f.taunting = rand(1.2, 2.2); f.shout('taunt'); } }
+    if (o.state === 'down' && !this.wasDown) {
+      this.say('playerDown');
+      if (chance(0.5) && f.state === 'free' && dist > 45) { f.roar(); this.sinceRoar = 0; }
+    }
     this.wasDown = o.state === 'down';
 
-    // ---- grab drag: steer at buildings (dir already chosen), throw late; flights fly themselves
-    if (f.state === 'grabbing' || f.state === 'super') return;
-    if (f.state === 'homing' || f.state === 'skyward' || f.state === 'skyhang' || f.state === 'skydive') return;
+    // ---- these play out by themselves
+    if (f.state === 'grabbing' || f.state === 'super' || f.state === 'beam' || f.state === 'dive') return;
+    // in the air: come down on him with a slam
+    if (f.state === 'jump') {
+      c.move.copy(dir).multiplyScalar(dist > 30 ? 1 : 0);
+      if (f.stateT > this.diveAt && dist < 120) { c.tap(chance(0.5) ? 'light' : 'heavy'); }
+      return;
+    }
 
     if (d.passive) {
-      // training dummy: hovers and never attacks, except in the tutorial's drills (game/tutorial.js):
-      // 'swing' closes in and throws a jab now and then for you to block, 'keepAway' backs off
-      // so the grab has to reach him
+      // training dummy: stands his ground and never attacks, except in the tutorial's drills
+      // (game/tutorial.js): 'swing' closes in and throws a jab now and then for you to block,
+      // 'keepAway' backs off so the beam has something to aim at
       if (this.drill === 'swing') {
-        if (dist > 3.4) c.move.copy(dir);
-        c.vert = clamp(to.y * 0.3, -1, 1);
+        if (dist > 30) c.move.copy(dir);
         this.drillT = (this.drillT || 0) - dt;
-        if (f.state === 'free' && dist < 4.5 && this.drillT <= 0) { c.tap('light'); this.drillT = 1.5; }
+        if (f.state === 'free' && dist < 34 && this.drillT <= 0) { c.tap('light'); this.drillT = 1.8; }
       } else if (this.drill === 'keepAway') {
-        if (dist < 30) c.move.set(-dir.x, 0, -dir.z).normalize();
-        c.vert = clamp((o.pos.y + 3 - f.pos.y) * 0.15, -1, 1);
-      } else c.move.copy(right).multiplyScalar(Math.sin(G.time.gameTime * 0.5) * 0.3);
+        if (dist < 90) c.move.copy(dir).negate();
+      } else c.move.copy(right).multiplyScalar(Math.sin(G.time.gameTime * 0.4) * 0.25);
       if (f.hp < f.maxHp) f.hp = Math.min(f.maxHp, f.hp + dt * 4);
       return;
     }
 
-    // ---- follow up a launch with a rush (the father never lets you breathe)
-    if (o.state === 'launched' && o.lastHitBy === f && f.state === 'free') {
-      if (o.vel.length() > 30 && o.stateT > 0.12 && chance(d.rush * dt * 6) && dist > 10) {
-        c.move.copy(dir);
-        c.tap('dash');
-        this.followUp = 1.5;
-        return;
-      }
-    }
-    if (this.followUp > 0) {
-      this.followUp -= dt;
-      if (f.state === 'free' && dist < 7) { c.tap(chance(0.55) ? 'light' : 'heavy'); this.comboLeft = 2; this.followUp = 0; if (c.held('heavy')) c.release('heavy'); }
-    }
-
-    // ---- defense: react to the opponent's startup
-    if (o.state === 'attack' && o.move && dist < (o.move.def.range + o.move.def.lunge + 2)) {
+    // ---- defense: react to the opponent's wind-ups
+    const om = o.move && o.move.def;
+    if (o.state === 'attack' && om && dist < (om.range + om.lunge + 10)) {
       if (this.reactingTo !== o.move) {
         this.reactingTo = o.move;
         this.reactT = d.react * rand(0.7, 1.3);
-        this.defense = chance(d.block) ? 'block' : chance(d.dodge) ? 'dodge' : 'none';
-        if (o.move.def.grab && this.defense === 'block') this.defense = chance(0.5) ? 'dodge' : 'none';
+        // a stomp's quake is best jumped; grabs go through a block
+        if (om.quake) this.defense = chance(d.dodge + 0.25) ? 'jump' : chance(d.block) ? 'block' : 'none';
+        else this.defense = chance(d.block) ? 'block' : chance(d.dodge) ? 'dodge' : 'none';
+        if (om.grab && this.defense === 'block') this.defense = chance(0.5) ? 'dodge' : 'none';
       }
-    } else if (o.state === 'charge' && dist < 18 && this.reactingTo !== 'charge') {
+    } else if (o.state === 'charge' && dist < 50 && this.reactingTo !== 'charge') {
       this.reactingTo = 'charge';
       this.reactT = d.react;
       this.defense = chance(d.dodge + 0.15) ? 'dodge' : chance(0.4) ? 'punish' : 'none';
-    } else if (o.state === 'skydive' && dist < 40 && this.reactingTo !== 'skydive') {
-      // a dive from the sky is telegraphed: sidestep it late (or brace for it)
-      this.reactingTo = 'skydive';
+    } else if (o.state === 'beam' && this.reactingTo !== 'beam') {
+      // a beam is telegraphed by its wind-up: get out of the line, or brace
+      this.reactingTo = 'beam';
+      this.reactT = d.react * rand(0.8, 1.4);
+      this.defense = chance(d.dodge + 0.2) ? 'dodge' : chance(d.block + 0.1) ? 'block' : 'none';
+    } else if (o.state === 'dive' && this.reactingTo !== 'dive') {
+      this.reactingTo = 'dive';
       this.reactT = d.react * rand(1, 1.6);
       this.defense = chance(d.dodge + 0.15) ? 'dodge' : chance(d.block) ? 'block' : 'none';
     }
     if (this.reactingTo) {
       this.reactT -= dt;
       if (this.reactT <= 0 && f.canAct) {
-        if (this.defense === 'block') { c.press('block'); this.blockHold = 0.45; }
+        if (this.defense === 'block') { c.press('block'); this.blockHold = this.reactingTo === 'beam' ? 1.8 : 0.5; }
         else if (this.defense === 'dodge') { c.move.copy(right).multiplyScalar(chance(0.5) ? 1 : -1).addScaledVector(dir, -0.3); c.tap('dash'); }
-        else if (this.defense === 'punish' && dist < 6) { c.tap('light'); this.comboLeft = 2; }
+        else if (this.defense === 'jump') c.tap('up');
+        else if (this.defense === 'punish' && dist < 34) { c.tap('light'); this.comboLeft = 2; }
         this.reactingTo = null;
         this.defense = 'none';
       }
     }
     if (this.blockHold > 0) {
       this.blockHold -= dt;
-      if (this.blockHold <= 0 || (o.state !== 'attack' && o.state !== 'charge')) { c.release('block'); this.blockHold = 0; }
+      if (this.blockHold <= 0 || (o.state !== 'attack' && o.state !== 'charge' && o.state !== 'beam' && o.state !== 'dive')) { c.release('block'); this.blockHold = 0; }
       else { c.press('block'); return; }
     }
 
@@ -162,87 +168,63 @@ export class Brain {
       return;
     }
 
-    // ---- charging: hold until in lunge range, then release
+    // ---- charging: hold until in reach, then release
     if (f.state === 'charge') {
       this.chargeHold -= dt;
-      c.move.copy(dir).multiplyScalar(0.6);
-      c.vert = clamp(to.y * 0.2, -1, 1);
-      const reach = 4 + f.charge * 15;
+      c.move.copy(dir).multiplyScalar(0.8);
+      const reach = 34 + f.charge * 20;
       if ((dist < reach && f.charge > 0.35) || this.chargeHold <= 0) c.release('heavy');
       else c.press('heavy');
       return;
     }
 
-    // ---- breather: break off, climb high over the city and watch; dive back in when it's over
-    // or when he comes after you. The fight gets quiet moments, the camera gets the skyline.
-    if (this.breather > 0) {
-      this.breather -= dt;
-      const toPerch = _p.subVectors(this.perch, f.pos);
-      const far = toPerch.length();
-      c.move.set(toPerch.x, 0, toPerch.z);
-      if (c.move.lengthSq() > 4) c.move.normalize(); else c.move.set(0, 0, 0);
-      c.vert = clamp(toPerch.y * 0.15, -1, 1);
-      if (far > 20) c.press('dash'); else c.release('dash');
-      if (this.breather <= 0 || dist < 12) {
-        // from up there, half the time he comes back down as a dive
-        const high = this.breather <= 0 && f.pos.y - o.pos.y > 18;
-        this.breather = 0;
-        c.release('dash');
-        this.plan = 'approach';
-        if (high && chance(0.5)) f.skyDive();
-      }
-      return;
-    }
-
     // ---- planning
     this.think -= dt;
-    if (this.think <= 0) {
-      this.think = rand(0.18, 0.45);
+    if (this.think <= 0 && f.state === 'free') {
+      this.think = rand(0.22, 0.5);
       if (chance(0.15)) this.strafeDir *= -1;
-      if (chance(0.1)) this.vertOff = rand(-3, 2);
       const r = Math.random();
-      if (f.meter >= 100 && dist < 16 && chance(d.superUse)) { c.tap('super'); return; }
-      if (this.sinceBreather > 7 && dist < 9 && f.state === 'free' && chance(d.breather * 0.3)) {
-        const away = _p.set(f.pos.x - o.pos.x, 0, f.pos.z - o.pos.z);
-        if (away.lengthSq() < 1) away.set(rand(-1, 1), 0, rand(-1, 1));
-        away.normalize().applyAxisAngle(UP, rand(-0.8, 0.8));
-        this.perch.copy(o.pos).addScaledVector(away, rand(35, 45));
-        this.perch.y = clamp(o.pos.y + rand(35, 60), 40, 110);
-        this.breather = rand(2, 3.4);
-        this.sinceBreather = 0;
-        this.say('breather');
+      if (f.meter >= 100 && dist < 50 && chance(d.superUse)) { c.tap('super'); return; }
+      // a breather: back off, roar at him (or strike the sentai pose) across the street
+      if (this.sinceRoar > 9 && dist > 55 && dist < 140 && chance(d.roar * 0.35)) {
+        f.roar(); this.sinceRoar = 0; this.say('roar');
         return;
       }
-      if (dist > 26) this.plan = 'approach';
-      else if (dist < 4.5) {
+      // the beam, from range (and now and then point blank)
+      if (f.beamE >= 1 && dist > 50 && dist < 260 && chance(d.beam * 0.45)) { c.tap('rise'); return; }
+      if (dist > 50 && dist < 120 && chance(d.leap * 0.4) && f.grounded) {
+        c.tap('up'); this.diveAt = rand(0.35, 0.8);
+        return;
+      }
+      if (dist > 70) this.plan = 'approach';
+      else if (dist < 34) {
         if (r < d.aggression) {
           this.plan = 'strafe';
           if (o.state === 'block' && chance(0.5 + d.grab)) c.tap('grab');
+          else if (o.grounded && chance(d.stomp * 0.5)) c.tap('down');
           else if (chance(d.grab * 0.5)) c.tap('grab');
           else { c.tap('light'); this.comboLeft = Math.floor(rand(d.combo[0], d.combo[1] + 0.99)) - 1; }
         } else this.plan = chance(0.5) ? 'strafe' : 'retreat';
       } else {
-        if (r < d.charge * 0.6 && dist > 7) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
+        if (r < d.charge * 0.6 && dist > 38) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
         else this.plan = r < 0.3 + d.aggression * 0.6 ? 'approach' : 'strafe';
       }
       if (f.hp < f.maxHp * 0.3) this.say('low');
     }
 
     // ---- movement
-    // fight inside the skyline band, where there are buildings to smash
-    const wantY = clamp(o.pos.y + this.vertOff, 6, 64) - f.pos.y;
-    c.vert = clamp(wantY * 0.25, -1, 1);
     if (this.plan === 'approach') {
-      c.move.copy(dir).addScaledVector(right, this.strafeDir * 0.25).normalize();
-      if (dist > 22) c.press('dash'); else c.release('dash');
+      c.move.copy(dir).addScaledVector(right, this.strafeDir * 0.2).normalize();
+      // run in from far away; a running kaiju close in shoulder-charges
+      if (dist > 85) c.press('dash'); else c.release('dash');
+      if (f.running && dist < 40 && chance(d.aggression)) c.tap('light');
     } else if (this.plan === 'strafe') {
       c.release('dash');
-      c.move.copy(right).multiplyScalar(this.strafeDir * 0.8).addScaledVector(dir, dist > 6 ? 0.5 : dist < 3 ? -0.4 : 0);
+      c.move.copy(right).multiplyScalar(this.strafeDir * 0.8).addScaledVector(dir, dist > 32 ? 0.5 : dist < 24 ? -0.4 : 0);
     } else if (this.plan === 'retreat') {
       c.release('dash');
       c.move.copy(dir).multiplyScalar(-0.7).addScaledVector(right, this.strafeDir * 0.5);
     }
-    c.move.y = 0;
     if (c.move.lengthSq() > 1) c.move.normalize();
   }
 }

@@ -12,7 +12,7 @@ const KEYMAP = {
   KeyE: 'grab', KeyL: 'grab',
   KeyQ: 'block', KeyF: 'block',
   KeyR: 'super', KeyU: 'super',
-  KeyG: 'rise',
+  KeyG: 'rise', KeyB: 'rise',
   Escape: 'pause', KeyP: 'pause',
   Enter: 'confirm',
   KeyH: 'help',
@@ -22,8 +22,8 @@ const KEYMAP = {
 };
 // Standard-mapping pad (Gamepad API): 0-3 face buttons (bottom, right, left, top), 4 / 5 bumpers,
 // 6 / 7 triggers, 8 back, 9 start, 10 / 11 stick clicks, 12-15 d-pad up, down, left, right.
-// The triggers also fly down / up in proportion to how far they're pulled (see poll).
-const PAD = { 0: 'dash', 1: 'grab', 2: 'light', 3: 'heavy', 4: 'block', 5: 'super', 6: 'down', 7: 'up', 8: 'help', 9: 'pause', 12: 'rise' };
+// A leaps, LT stomps, RT runs (tap: sidestep), D-pad up or R3 fires the beam.
+const PAD = { 0: 'up', 1: 'grab', 2: 'light', 3: 'heavy', 4: 'block', 5: 'super', 6: 'down', 7: 'dash', 8: 'help', 9: 'pause', 11: 'rise', 12: 'rise' };
 // what each layout prints on those buttons (controls panels, hints)
 const DPAD = ['L3', 'R3', 'D-PAD ↑', 'D-PAD ↓', 'D-PAD ←', 'D-PAD →'];
 const PAD_LABELS = {

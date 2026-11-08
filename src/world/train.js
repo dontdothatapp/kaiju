@@ -186,15 +186,16 @@ export class Train {
   }
 
   // Fighters moving fast through a car knock the whole train off its rails.
-  sweep(pos, vel) {
+  // r widens the hit box (a kaiju's foot or body); minSp: how fast it has to be going
+  sweep(pos, vel, r = 0, minSp = 30) {
     const sp = vel.length();
-    if (sp < 30) return;
+    if (sp < minSp) return;
     for (const car of this.cars) {
       const c = car.mesh.position;
       _v.copy(pos).sub(c);
       // into car-local space (car length along local X)
       _v.applyQuaternion(_q.copy(car.mesh.quaternion).invert());
-      if (Math.abs(_v.x) < 8 && _v.y > -1.5 && _v.y < 5 && Math.abs(_v.z) < 3.2) {
+      if (Math.abs(_v.x) < 8 + r && _v.y > -1.5 - r && _v.y < 5 + r && Math.abs(_v.z) < 3.2 + r) {
         if (car.onRails) this.derail(car, vel);
         else if (!car.hitCd || car.hitCd <= 0) {
           car.hitCd = 0.4;

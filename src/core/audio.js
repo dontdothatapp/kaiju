@@ -38,6 +38,7 @@ export class AudioEngine {
     this.pitch = 1;
     this.camera = null;
     this.charges = new Map();
+    this.beams = new Map();
     this.talking = {};   // fighter -> { src, prio, until }: the voice line they're saying
     this.bank = {};      // group -> [AudioBuffer]
     this.files = [];
@@ -47,7 +48,7 @@ export class AudioEngine {
     this.wantMusic = null;
     this.musicToken = 0;
     this.musicOn = true;
-    try { this.musicOn = localStorage.getItem('bloodline-music') !== 'off'; } catch (e) { /* storage blocked */ }
+    try { this.musicOn = localStorage.getItem('megaton-music') !== 'off'; } catch (e) { /* storage blocked */ }
   }
 
   // Mix levels by family, so the balance is tuned in one place.
@@ -305,13 +306,13 @@ export class AudioEngine {
   // is saying unless that has a higher `prio` (VOICE), or the same one and only just started (so a
   // quick combo doesn't chop every grunt). duck dips the other effects by that fraction for `hold`
   // seconds so the line reads.
-  voice(group, pos, { who = group, prio = 2, vol = 1, offset = 0, duck = 0, hold = 0.6 } = {}) {
+  voice(group, pos, { who = group, prio = 2, vol = 1, offset = 0, duck = 0, hold = 0.6, rate = 1 } = {}) {
     if (!this._ok(group, 0.3)) return false;
     const t = this.ctx.currentTime, cur = this.talking[who];
     const busy = cur && cur.until > t;
     if (busy && (cur.prio > prio || (cur.prio === prio && t - cur.t0 < 0.3))) return false;
     const level = vol * AudioEngine.LEVEL.voice * (AudioEngine.VOICE_VOL[prio] ?? 1);
-    const src = this.sample(group, this._dest(pos, level, this.voiceBus), { vol: 1, jitter: 0.03, offset, pitchless: true });
+    const src = this.sample(group, this._dest(pos, level, this.voiceBus), { vol: 1, jitter: 0.03, offset, pitchless: true, rate });
     if (!src) return false;
     if (busy) { cur.src.out.gain.setTargetAtTime(0, t, 0.02); try { cur.src.stop(t + 0.1); } catch (e) { /* already stopping */ } }
     this.talking[who] = { src, prio, t0: t, until: t + (src.buffer.duration - offset) / src.playbackRate.value };
@@ -415,7 +416,7 @@ export class AudioEngine {
 
   setMusicOn(on) {
     this.musicOn = on;
-    try { localStorage.setItem('bloodline-music', on ? 'on' : 'off'); } catch (e) { /* storage blocked */ }
+    try { localStorage.setItem('megaton-music', on ? 'on' : 'off'); } catch (e) { /* storage blocked */ }
     if (this.musicOut) this.musicOut.gain.setTargetAtTime(on ? AudioEngine.MIX.music : 0, this.ctx.currentTime, 0.08);
   }
 
@@ -444,7 +445,7 @@ export class AudioEngine {
     if (pos && this.camera) {
       _v.copy(pos).sub(this.camera.position);
       const d = _v.length();
-      gain = 1 / (1 + d / 45);
+      gain = 1 / (1 + d / 170); // kaiju scale: the camera sits ~100 m back
       _v.normalize();
       const right = new THREE.Vector3(1, 0, 0).applyQuaternion(this.camera.quaternion);
       pan = clamp(_v.dot(right) * 0.8, -0.9, 0.9);
@@ -648,6 +649,72 @@ export class AudioEngine {
     const o = this._dest(pos, 1.6 * AudioEngine.MIX.building);
     this.duck(0.55, 2.5);
     this.sample('collapse', o, { vol: AudioEngine.LEVEL.collapse, jitter: 0.04 });
+  }
+
+  // ---------------------------------------------------------------- kaiju
+  // A footfall: a sub-bass thud with a rumble tail and a crunch of asphalt; the robot's joints
+  // clank (the metal hit, pitched way down).
+  footstep(pos, k, rig) {
+    if (!this.live || this.muted || !this._ok('step', 0.07)) return;
+    const o = this._dest(pos, 1);
+    this.tone(o, { f: 72, f1: 26, dur: 0.38, vol: 0.85 * k, dist: true });
+    this.noise(o, { type: 'lowpass', f: 300, f1: 50, dur: 0.6, vol: 0.6 * k, buf: 'brown', attack: 0.004 });
+    this.sample('groundSlam', o, { vol: AudioEngine.LEVEL.groundSlam * 0.2 * k, rate: rand(1.2, 1.4) });
+    if (rig === 'mech') this.sample('metal', o, { vol: AudioEngine.LEVEL.metal * 0.1 * k, rate: rand(0.5, 0.6), t: 0.03 });
+  }
+
+  // a beam pouring out: roaring band-passed noise, a buzzing saw underneath and a wobble on top
+  beamStart(f) {
+    if (!this.live || this.muted || this.beams.has(f)) return;
+    const ctx = this.ctx, t = ctx.currentTime, beast = f.def.rig === 'beast';
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1, t + 0.06);
+    g.connect(this._dest(f.pos, 1.2));
+    const n = ctx.createBufferSource(); n.buffer = this.white; n.loop = true;
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = beast ? 800 : 1500; bp.Q.value = 0.7;
+    const ng = ctx.createGain(); ng.gain.value = 0.9;
+    n.connect(bp); bp.connect(ng); ng.connect(g);
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = beast ? 52 : 86;
+    const o2 = ctx.createOscillator(); o2.type = 'square'; o2.frequency.value = beast ? 78 : 172;
+    const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1100;
+    const og = ctx.createGain(); og.gain.value = 0.3;
+    o.connect(lp); o2.connect(lp); lp.connect(og); og.connect(g);
+    const lfo = ctx.createOscillator(); lfo.frequency.value = beast ? 7 : 13;
+    const lg = ctx.createGain(); lg.gain.value = beast ? 350 : 500;
+    lfo.connect(lg); lg.connect(bp.frequency);
+    for (const x of [n, o, o2, lfo]) { x.start(t); this._track(x); }
+    this.tone(this._dest(f.pos, 1), { f: 110, f1: 30, dur: 0.8, vol: 1.2, dist: true });
+    this.beams.set(f, { g, srcs: [n, o, o2, lfo] });
+    this.duck(0.4, 1.6);
+  }
+
+  beamStop(f) {
+    const b = this.beams.get(f);
+    if (!b) return;
+    const t = this.ctx.currentTime;
+    b.g.gain.setTargetAtTime(0.0001, t, 0.09);
+    for (const x of b.srcs) x.stop(t + 0.6);
+    this.beams.delete(f);
+  }
+
+  // GORRAX's roar: his deepest line slowed right down, over a growling saw and a hiss of breath
+  roar(pos) {
+    if (!this.live || this.muted || !this._ok('roar', 1)) return;
+    const o = this._dest(pos, 1.4);
+    if (!this.sample('vo_patriarch_taunt', o, { vol: 2, rate: 0.48, pitchless: true, jitter: 0.02 })) this.sample('vo_patriarch_hurt_heavy', o, { vol: 2, rate: 0.45, pitchless: true });
+    this.tone(o, { f: 140, f1: 60, dur: 1.6, vol: 0.5, type: 'sawtooth', dist: true, attack: 0.15 });
+    this.noise(o, { f: 1400, f1: 500, q: 0.6, dur: 1.5, vol: 0.5, attack: 0.1 });
+    this.duck(0.5, 1.4);
+  }
+
+  explosion(pos, s = 1) {
+    if (!this.live || this.muted || !this._ok('boom', 0.2)) return;
+    const o = this._dest(pos, 1.3);
+    this.tone(o, { f: 90, f1: 22, dur: 1.4, vol: 1.4 * s, dist: true });
+    this.noise(o, { type: 'lowpass', f: 900, f1: 60, dur: 2.6, vol: 1.2, buf: 'brown', attack: 0.005 });
+    this.noise(o, { type: 'highpass', f: 1800, dur: 0.15, vol: 0.8 });
+    this.sample('crumbleBig', o, { vol: AudioEngine.LEVEL.crumbleBig * 0.6, rate: 0.8, t: 0.05 });
+    this.duck(0.6, 1.4);
   }
 
   chargeStart(f) {

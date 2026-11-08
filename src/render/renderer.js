@@ -44,7 +44,7 @@ export function createScene(quality) {
   sun.castShadow = quality !== 'low';
   const size = quality === 'high' ? 4096 : 2048;
   sun.shadow.mapSize.set(size, size);
-  const s = 150;
+  const s = 230; // kaiju scale: both fighters and the blocks around them
   Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 900 });
   sun.shadow.bias = -0.0006;
   sun.shadow.normalBias = 0.6;

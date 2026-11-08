@@ -94,7 +94,7 @@ export function generateCity(destruction, scene, seed, quality) {
     layout.blocks.push({ ...blockRect(i, j), park: false, outer: true });
   }
   createSkyline(scene, destruction.material, rng);
-  // round intro (game/intro.js): the Heir lands in the park, the Patriarch on the intersection
+  // round intro (game/intro.js): your kaiju lands in the park, the other one on the intersection
   // at its corner, and the establishing shot looks across downtown
   const h = CITY.PITCH / 2;
   layout.landing = { heir: layout.parkCenter.clone(), patriarch: layout.parkCenter.clone().add(new THREE.Vector3(h, 0, h)) };

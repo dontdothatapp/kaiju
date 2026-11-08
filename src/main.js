@@ -146,15 +146,16 @@ function simulate(realDt) {
   const p = G.player, b = G.bot;
   const fighting = G.game.state !== 'title' && G.game.state !== 'boot';
   if (fighting) {
-    chunkUniforms.uFocus.value.copy(p.pos);
-    chunkUniforms.uFocus2.value.copy(b.pos);
-    G.fx.smoke.setFocus(p.pos, b.pos);
+    // the see-through tunnels aim at their chests
+    chunkUniforms.uFocus.value.copy(p.pos).setY(p.pos.y + p.H * 0.2);
+    chunkUniforms.uFocus2.value.copy(b.pos).setY(b.pos.y + b.H * 0.2);
+    G.fx.smoke.setFocus(chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
     G.boundary.update(G.time.realTime, p.pos, b.pos);
   } else {
     chunkUniforms.uFocus.value.set(0, -1e4, 0);
     chunkUniforms.uFocus2.value.set(0, -1e4, 0);
   }
-  followShadow(G.sun, fighting ? _v.copy(p.pos).lerp(b.pos, 0.3) : G.fightCam.look);
+  followShadow(G.sun, fighting ? _v.copy(p.pos).lerp(b.pos, 0.4) : G.fightCam.look);
   G.audio.update(G.camera, G.time.scale, p.vel.length(), G.game.paused);
   G.hud.update(realDt);
   G.post.update(realDt, G.time.realTime);
@@ -186,14 +187,20 @@ function installTestHooks() {
     ground(x, z, speed = 120) { G.fx.groundImpact(new THREE.Vector3(x, 0, z), speed); },
     cam(px, py, pz, tx, ty, tz) { G.fightCam.override = { pos: new THREE.Vector3(px, py, pz), look: new THREE.Vector3(tx, ty, tz) }; },
     freeCam() { G.fightCam.override = null; },
-    // put both fighters at the foot of a tower (normal gameplay camera)
+    // put both kaiju next to a tower (normal gameplay camera): the bot with his back to it
     fightAtTower(rank = 0) {
       const s = G.destruction.structs.slice().sort((a, b) => b.max.y - a.max.y)[rank];
       const c = s.min.clone().add(s.max).multiplyScalar(0.5);
-      G.player.pos.set(s.min.x - 14, 14, c.z - 6);
-      G.bot.pos.set(s.min.x - 6, 15, c.z - 2);
+      const gy = (x, z, f) => G.ground.heightAt(x, z) + f.hipH;
+      G.bot.pos.set(s.min.x - 16, 0, c.z); G.bot.pos.y = gy(G.bot.pos.x, c.z, G.bot);
+      G.player.pos.set(s.min.x - 48, 0, c.z - 6); G.player.pos.y = gy(G.player.pos.x, c.z - 6, G.player);
       G.player.vel.set(0, 0, 0); G.bot.vel.set(0, 0, 0);
       return s.id;
+    },
+    // make a fighter do something: 'light' 'heavy' 'grab' 'super' 'up' (jump) 'down' (stomp) 'rise' (beam)
+    act(who, action, hold = 0) {
+      const f = who === 'bot' ? G.bot : G.player;
+      if (hold) { f.ctrl.press(action); setTimeout(() => f.ctrl.release(action), hold); } else f.ctrl.tap(action);
     },
     // knock out a whole storey of the tallest tower to trigger a collapse
     collapseTower(level = 4, rank = 0) {

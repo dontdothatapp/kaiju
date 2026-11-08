@@ -4,6 +4,7 @@ import { makePebbleSystem, makeGlassSystem, makeBloodSystem, SparkSystem } from 
 import { SmokeSystem } from './smoke.js';
 import { ShockSystem } from './shock.js';
 import { ComicText } from './comic.js';
+import { BeamSystem } from './beam.js';
 import { G } from '../core/context.js';
 import { rand, randomUnit, randomInCone, clamp } from '../core/math.js';
 
@@ -11,6 +12,7 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _c = new THREE.Color();
 const WHITE = new THREE.Color(1, 1, 1);
+const UPV = new THREE.Vector3(0, 1, 0);
 
 export class FX {
   constructor(scene, fractureLib, quality) {
@@ -23,6 +25,7 @@ export class FX {
     this.smoke = new SmokeSystem(scene, Math.floor(2200 * q));
     this.shock = new ShockSystem(scene);
     this.comicText = new ComicText(scene);
+    this.beam = new BeamSystem(scene);
   }
 
   update(dt, realDt, camera) {
@@ -33,6 +36,7 @@ export class FX {
     this.smoke.update(dt);
     this.shock.update(dt, camera);
     this.comicText.update(dt, realDt);
+    this.beam.update(dt);
   }
 
   // ---- primitives ----
@@ -89,7 +93,7 @@ export class FX {
       this.smoke.spawn(
         pos.x + dx * radius * 0.3, Math.max(gy, pos.y) + rand(0.3, 1.5), pos.z + dz * radius * 0.3,
         dx * radius * 1.7 * speedK * rand(0.7, 1.2), rand(0.5, 2.5), dz * radius * 1.7 * speedK * rand(0.7, 1.2),
-        Math.min(4.5, radius * 0.1) * rand(0.6, 1.3), rand(1.8, 2.6), rand(2.5, 5.5), kind, 1.6, 0.35,
+        Math.min(9, radius * 0.12) * rand(0.6, 1.3), rand(1.8, 2.6), rand(2.5, 5.5), kind, 1.6, 0.35,
       );
     }
   }
@@ -155,40 +159,144 @@ export class FX {
     }
   }
 
-  comic(kind, pos, size = 1) {
-    this.comicText.pop(kind, pos, size, G.camera);
+  comic(kind, pos, size = 1, text = null) {
+    this.comicText.pop(kind, pos, size, G.camera, text);
   }
 
   // ---- recipes ----
   // Fist/body hit on a fighter. strength 0..1+
   hit(pos, dir, strength, opts = {}) {
     const s = clamp(strength, 0.1, 2);
+    const K = 5; // kaiju scale: a fist is the size of a bus
     const col = opts.color || new THREE.Color(1, 0.9, 0.55);
     // keep the flash readable instead of a white-out when the camera is close
-    const camD = G.camera ? G.camera.position.distanceTo(pos) : 20;
-    const near = clamp(camD / 14, 0.35, 1);
-    this.shock.star(pos, (1.0 + s * 1.6) * near, opts.blocked ? 0x8fd1ff : 0xffffff, 0.07 + s * 0.05);
-    this.shock.flash(pos, (0.6 + s * 1.4) * near, opts.blocked ? 0x6ab8ff : 0xfff2c0, 0.1 + s * 0.08);
-    this.shock.ring(pos, dir, (2 + s * 7) * near, opts.blocked ? 0x9fd8ff : 0xffffff, 0.25 + s * 0.2, 0.18);
-    if (s > 0.6) this.shock.ring(pos, dir, (4 + s * 12) * near, 0xffe6a0, 0.4 + s * 0.2, 0.08, 0.7);
-    this.sparkCone(pos, dir, 10 + s * 40, col, 25 + s * 55, 0.9, 0.06 + s * 0.06, 0.04);
+    const camD = G.camera ? G.camera.position.distanceTo(pos) : 100;
+    const near = clamp(camD / 70, 0.35, 1);
+    this.shock.star(pos, (1.0 + s * 1.6) * K * near, opts.blocked ? 0x8fd1ff : 0xffffff, 0.08 + s * 0.06);
+    this.shock.flash(pos, (0.6 + s * 1.4) * K * near, opts.blocked ? 0x6ab8ff : 0xfff2c0, 0.12 + s * 0.1);
+    this.shock.ring(pos, dir, (2 + s * 7) * K * near, opts.blocked ? 0x9fd8ff : 0xffffff, 0.3 + s * 0.25, 0.18);
+    if (s > 0.6) this.shock.ring(pos, dir, (4 + s * 12) * K * near, 0xffe6a0, 0.45 + s * 0.25, 0.08, 0.7);
+    this.sparkCone(pos, dir, 14 + s * 44, col, 40 + s * 70, 0.9, 0.35 + s * 0.3, 0.05);
     // puffs only on big hits; small hits must not hide the poses
-    if (s > 0.7) this.dustPuff(pos.clone().addScaledVector(dir, 1.2), 0.3 + s * 0.35, 1 + Math.floor(s * 1.5), 'white', _v.copy(dir).multiplyScalar(9 * s), 0.3 + s * 0.25);
+    if (s > 0.7) this.dustPuff(pos.clone().addScaledVector(dir, 6), 2 + s * 2.5, 1 + Math.floor(s * 1.5), 'white', _v.copy(dir).multiplyScalar(20 * s), 0.4 + s * 0.3);
     if (!opts.blocked && s > 0.35) this.blood(pos, dir, 4 + s * 18);
+  }
+
+  // ---- kaiju recipes ----
+  // A footfall: dust rolling out from under the foot, a cracked footprint in the asphalt, parked
+  // cars bouncing (or flattened), park trees knocked flat and the base of a building giving way.
+  footstep(p, k, f) {
+    this.dustRing(p, 7 + k * 6, Math.round(4 + k * 4), 'dust', 0.6);
+    if (k > 1.1) this.pebbleBurst(p, 8, _v.set(f.vel.x * 0.3, 8, f.vel.z * 0.3), new THREE.Color(0.42, 0.42, 0.45), 3);
+    G.ground.paintScorch(p.x, p.z, 4.5, 0.55);
+    G.props && G.props.explosion(p, 12 + k * 6, 6 + k * 6);
+    G.props && G.props.sweep(p, _v.set(f.vel.x, -20, f.vel.z), 7, 0);
+    if (G.trees) G.trees.knock(p.x, p.z, 7);
+    G.debris.explosion(p, 16, 3 + k * 3, 0.5, 20);
+    // stepping into a building: its ground floor caves in round the foot
+    _w.set(p.x, p.y + 5, p.z);
+    if (G.destruction.structsNear(_w, 7).length) G.destruction.impact({ pos: _w, radius: 7, power: 0.5, vel: _v.set(f.vel.x, -6, f.vel.z), shatter: 14, maxChunks: 14 });
+  }
+
+  // Tokusatsu pyrotechnics: spark fountains and little flashes bursting off a body on a hit.
+  pyro(pos, strength = 1) {
+    const s = clamp(strength, 0.3, 2.2);
+    const n = 2 + Math.round(s * 2);
+    for (let i = 0; i < n; i++) {
+      const at = pos.clone().add(randomUnit(_w).multiplyScalar(rand(2, 7) * s));
+      const d = randomUnit(_v); d.y = Math.abs(d.y) + 0.4; d.normalize();
+      _c.setRGB(1, rand(0.72, 0.92), rand(0.3, 0.55));
+      this.sparkCone(at, d, 16 + s * 14, _c, 35 + s * 30, 0.75, 0.4 + s * 0.2, 0.05);
+      this.shock.flash(at, 2.5 + s * 3, 0xffe7a0, 0.12 + s * 0.05);
+      if (s > 0.9 && Math.random() < 0.6) this.smoke.spawn(at.x, at.y, at.z, d.x * 4, 3, d.z * 4, 2 + s, 2.2, rand(1, 1.8), 'dark', 1.5, 1.4);
+    }
+  }
+
+  // A ball of fire: hot core, orange billows, black smoke rising after.
+  fireball(pos, size = 1, tint = null) {
+    const s = clamp(size, 0.3, 3);
+    this.shock.flash(pos, 6 * s, tint || 0xffd27a, 0.2 + s * 0.05);
+    const n = Math.round(3 + s * 4);
+    for (let i = 0; i < n; i++) {
+      randomUnit(_v).multiplyScalar(rand(0.5, 1) * 4 * s);
+      this.smoke.spawn(pos.x + _v.x, pos.y + _v.y, pos.z + _v.z, _v.x * 2.5, Math.abs(_v.y) * 2 + 4, _v.z * 2.5, 2.5 * s * rand(0.7, 1.2), 2.2, rand(0.6, 1.1), 'hot', 2.2, 1.5);
+    }
+    for (let i = 0; i < Math.round(1 + s * 2); i++) {
+      randomUnit(_v).multiplyScalar(3 * s);
+      this.smoke.spawn(pos.x + _v.x, pos.y + Math.abs(_v.y) + 3 * s, pos.z + _v.z, _v.x, 6 + s * 2, _v.z, 3 * s, 2.6, rand(2.5, 4.5), 'dark', 1.2, 2.5);
+    }
+  }
+
+  // The big one (a kaiju going up, the finisher landing): flash, shockwaves, fire, black smoke,
+  // sparks raining down, and everything around it blown outward.
+  explosion(pos, size = 1, tint = null) {
+    const s = clamp(size, 0.5, 3);
+    const color = tint ? new THREE.Color(tint) : new THREE.Color(1, 0.75, 0.35);
+    this.shock.flash(pos, 26 * s, tint || 0xfff0b0, 0.35);
+    this.shock.star(pos, 30 * s, 0xffffff, 0.18);
+    this.shock.ring(pos, null, 90 * s, tint || 0xffd08a, 0.7, 0.08);
+    this.shock.ring(pos, G.camera ? _v.subVectors(G.camera.position, pos).normalize().clone() : null, 70 * s, 0xffffff, 0.5, 0.12);
+    for (let i = 0; i < 5; i++) {
+      randomUnit(_w).multiplyScalar(rand(4, 14) * s);
+      this.fireball(_v.copy(pos).add(_w), s * rand(0.7, 1.1), tint);
+    }
+    this.sparkCone(pos, UPV, 120 * s, color, 70 + s * 30, 1.4, 0.8, 0.06);
+    this.dustPuff(pos, 8 * s, 3, 'dark', _v.set(0, 12, 0), 3.5);
+    G.post && G.post.flashScreen(0.35);
+    G.post && G.post.kickCA(1);
+    G.fightCam && G.fightCam.addTraumaAt(pos, 0.9, 700);
+    G.debris.explosion(pos, 70 * s, 22 * s, 0.6);
+    G.props && G.props.explosion(pos, 80 * s, 20);
+    G.destruction.impact({ pos, radius: 6 * s, power: 1, vel: _v.set(0, 10, 0), shatter: 50 * s, maxChunks: 30 });
+    this.comic('boom', pos.clone().add(_w.set(0, 20 * s, 0)), 1.4 + s * 0.3);
+    G.audio && G.audio.explosion(pos, s);
+  }
+
+  // where a beam meets the street: a fountain of sparks and fire, scorch, glowing dust
+  beamImpact(pos, color) {
+    _c.set(color);
+    this.sparkCone(pos, UPV, 26, _c, 60, 1.1, 0.7, 0.05);
+    if (Math.random() < 0.6) this.fireball(pos.clone().setY(pos.y + 3), 0.9, color);
+    if (Math.random() < 0.5) this.dustPuff(pos, 5, 1, 'dust', _v.set(0, 10, 0), 2);
+    this.shock.flash(pos, 14, color, 0.12);
+    G.ground.paintScorch(pos.x, pos.z, 7, 0.8);
+  }
+
+  // a sword cut: a bright crescent ribbon of sparks across him (side -1 / 1, or 0 for the
+  // vertical finisher)
+  slash(pos, dir, side, big = false) {
+    const right = _w.crossVectors(dir, UPV).normalize();
+    const n = big ? 40 : 22, R = big ? 26 : 18;
+    _c.setRGB(0.75, 0.95, 1);
+    for (let i = 0; i < n; i++) {
+      const k = i / (n - 1) - 0.5;
+      const at = pos.clone();
+      if (side === 0) at.addScaledVector(UPV, -k * R * 2).addScaledVector(dir, -Math.abs(k) * 4);
+      else at.addScaledVector(right, k * R * 2 * side).addScaledVector(UPV, -k * R * 0.8).addScaledVector(dir, -Math.abs(k) * 4);
+      this.sparks.spawn(at.x, at.y, at.z, dir.x * 30 + rand(-6, 6), rand(-4, 8), dir.z * 30 + rand(-6, 6), big ? 1.6 : 1.1, 0.04, rand(0.25, 0.45), _c, 2, 4);
+    }
+    this.shock.ring(pos, dir, big ? 60 : 36, 0xbff4ff, 0.35, 0.1);
+    this.shock.flash(pos, big ? 22 : 12, 0xe0faff, 0.16);
+  }
+
+  // a bolt of lightning out of the sky onto `to`
+  lightning(from, to) {
+    G.weather && G.weather.strikeAt(to);
+    this.sparkCone(to, UPV, 40, new THREE.Color(0.75, 0.92, 1), 50, 1.5, 0.6, 0.05);
   }
 
   // Body slamming into the ground at speed. Craters, rings, dust, debris impulse.
   groundImpact(pos, speed, opts = {}) {
     const s = clamp(speed / 120, 0.1, 1.6);
-    const radius = 3 + s * 11;
+    const radius = 4 + s * 15;
     const gy = G.ground.heightAt(pos.x, pos.z);
     const p = new THREE.Vector3(pos.x, gy + 0.3, pos.z);
     G.ground.crater(pos.x, pos.z, radius, 1 + s * 4.5);
     this.shock.ring(p.clone().setY(gy + 0.6), null, radius * 3.5, 0xfff0d0, 0.55 + s * 0.3, 0.12);
     this.shock.ring(p.clone().setY(gy + 1.2), null, radius * 6, 0xffffff, 0.8 + s * 0.3, 0.05, 0.6);
     this.shock.flash(p, Math.min(6, radius * 0.5), 0xfff0c0, 0.2);
-    this.dustRing(p, radius * 1.3, 8 + Math.floor(s * 10));
-    this.dustPuff(p, Math.min(2.6, radius * 0.2), 2 + Math.floor(s * 3), 'dust', new THREE.Vector3(0, 7 * s, 0), 2 + s * 1.5);
+    this.dustRing(p, radius * 1.4, 10 + Math.floor(s * 12), 'dust', 1.2);
+    this.dustPuff(p, Math.min(9, radius * 0.4), 2 + Math.floor(s * 3), 'dust', new THREE.Vector3(0, 12 * s, 0), 2.5 + s * 1.5);
     this.pebbleBurst(p, 20 + s * 60, new THREE.Vector3(0, 14 * s, 0), new THREE.Color(0.42, 0.42, 0.45), radius * 0.25);
     this.sparkCone(p, new THREE.Vector3(0, 1, 0), 20 + s * 40, new THREE.Color(1, 0.8, 0.45), 30 + s * 40, 1.2, 0.1, 0.05);
     // asphalt slabs flipping up around the rim
@@ -196,7 +304,7 @@ export class FX {
     for (let i = 0; i < slabs && G.debris.freeBudget > 20; i++) {
       const a = rand(0, Math.PI * 2), d = radius * rand(0.6, 1.1);
       const sp = new THREE.Vector3(pos.x + Math.cos(a) * d, gy + 0.5, pos.z + Math.sin(a) * d);
-      const sz = new THREE.Vector3(rand(1.2, 3), rand(0.3, 0.6), rand(1.2, 3));
+      const sz = new THREE.Vector3(rand(2, 4.5), rand(0.4, 0.8), rand(2, 4.5));
       G.debris.spawnBox({
         pos: sp, quat: new THREE.Quaternion().setFromEuler(new THREE.Euler(rand(-0.4, 0.4), a, rand(-0.4, 0.4))),
         size: sz, cell: sz.clone(), parent: sz.clone(), offset: new THREE.Vector3(),

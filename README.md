@@ -1,23 +1,31 @@
-# BLOODLINE — a superpowered destruction fighter (tech demo)
+# MEGATON: a kaiju destruction fighter (tech demo)
 
-A playable browser tech demo of a 3D flying-superhero brawl in the spirit of the father-vs-son
-fight from *Invincible* (S1E8): bodies punched through skyscrapers, towers toppling, craters,
-a derailed elevated train, and as much feedback ("juice") per hit as I could fit.
+A playable browser tech demo of a giant-monster brawl in the spirit of the Godzilla films and the
+giant-robot finales of Saturday-morning sentai shows. Two 47-metre kaiju trade blows in a fully
+destructible Manhattan: they wade through city blocks, throw each other through towers, cut the
+skyline in half with beams and knock each other flat in the street. Every hit gets as much
+juice as I could fit, and when a kaiju goes down for good, it explodes.
 
-You are **THE HEIR** (yellow/blue). The bot is **THE PATRIARCH** (white suit, red cape, moustache).
-The characters, names and city are original; the fight is an homage.
+You play **KAISER-OH**, a red, white and gold combining robot that summons a sword for its
+finisher, or **GORRAX**, an atomic lizard with glowing dorsal plates, a tail and atomic breath.
+Pick one on the title screen and the bot plays the other. The characters, names and city
+destruction are original; the fight is an homage.
 
-![A charged punch sends the Patriarch through a glass tower](docs/shot-launch.jpg)
+MEGATON is a fork of [Bloodline](https://github.com/dontdothatapp/bloodline), a flying-superhero
+destruction fighter. The destruction engine, city, weather, recap and juice systems carry over
+from it; the fighters, their scale, movement, moves, AI, camera and effects are new.
 
-| Impact frame (full-charge punch) | Tower collapse (lean + pancake) |
+![KAISER-OH and GORRAX in Madison Square](docs/shot-fight.jpg)
+
+| ATOMIC BREATH | Knocked flat in the street |
 |---|---|
-| ![](docs/shot-hit.jpg) | ![](docs/shot-collapse.jpg) |
-| **Elevated train** | **Aftermath: frozen rubble** |
-| ![](docs/shot-train.jpg) | ![](docs/shot-rubble.jpg) |
+| ![](docs/shot-beam.jpg) | ![](docs/shot-down.jpg) |
+| **Rocket jump into a KAISER KICK** | **The monster drops in on the Flatiron** |
+| ![](docs/shot-leap.jpg) | ![](docs/shot-intro.jpg) |
 
 **Stack:** three.js r186 (WebGL2) · Rapier 0.21 (WASM, SIMD build) · Vite · plain ES modules.
 Every mesh, texture and animation is procedural. Sound is recorded samples and ElevenLabs sound
-effects, with a little procedural sub-bass under the punches (see [Audio](#audio)).
+effects, with procedural sub-bass, footfalls, beams and roars layered in (see [Audio](#audio)).
 
 ## Run it
 
@@ -32,97 +40,155 @@ npm run preview
 "GitHub Actions", then run the workflow from the Actions tab. `node tools/build-artifact.mjs <dir>`
 repackages `dist/` as a claude.ai Artifact page plus its JS chunks.
 
-Useful URL flags: `?fight` (skip the title), `?diff=training|sparring|brutal|viltrumite` (default: sparring),
-`?quality=high|medium|low`, `?seed=1234` (different city), `?auto` (bot vs bot attract mode),
-`?map=grid` (the procedural city; the default is `flatiron`, real Manhattan, see [below](#real-nyc-madison-square--flatiron)),
-`?weather=golden|dusk|storm|night|random` (default: golden, see [Weather and light](#weather-and-light)),
-`?tutorial` (straight into the [tutorial](#tutorial)).
-`?fight` and `?auto` skip the round opener and start the fighters close together, as the
-`tools/s_*.mjs` scenarios expect; `?intro` forces the opener anyway, `?nointro` drops it.
-`?norecap` skips the highlight recap after the match. `?mute` starts with all sound off (M toggles it).
-The title screen's **City** and **Weather** menus switch maps and weather too and remember the choice.
-Its **Controls** button opens the full controls list (keys, the connected pad's buttons, or the
-touch buttons); **Tutorial** teaches the moves one at a time.
+Useful URL flags:
+- `?kaiju=kaiser|gorrax`: who you play (default: the robot; the title's picker remembers).
+- `?fight`: skip the title. `?auto`: bot vs bot. Both skip the round opener and start the kaiju
+  ~55 m apart, as the `tools/s_*.mjs` scenarios expect; `?intro` forces the opener anyway,
+  `?nointro` drops it.
+- `?diff=training|sparring|brutal|king` (default: sparring).
+- `?quality=high|medium|low`, `?seed=1234` (a different procedural city).
+- `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
+  [below](#real-nyc-madison-square--flatiron).
+- `?weather=golden|dusk|storm|night|random` (default: golden).
+- `?tutorial`, `?norecap`, `?mute`.
 
 ## Controls
 
 | Keyboard / mouse | Gamepad | Action |
 |---|---|---|
-| W A S D | left stick | Fly toward / around the opponent (lock-on) |
-| Space / C | RT / LT (analog), right stick | Up / down |
-| Shift (tap) | A | Dash (i-frames) · **rush** after a launched enemy · **air-recover** when launched |
-| Shift (hold) | A (hold) | Boost flight: above ~42 m/s you plow through buildings |
-| LMB / J | X | Punch combo: jab → cross → hook → smash (launcher) |
-| RMB / K (hold) | Y | Heavy; hold to **charge** (up to 195 m/s launch). Reaches him from **any distance**: out of range you rocket at him first, through whatever's in the way. +Space / RT = uppercut, +C / LT = meteor smash |
-| G | D-pad up | **Skyward**: shoot ~110 m straight up over the city, hang there (slow motion, wide view), then LMB / RMB **dives** on him and spikes him into the street |
-| E / L / MMB | B | **Grab → drag** him through buildings (steer with WASD) **→ throw**. Like the heavy, it reaches him from **any distance**: out of range you fly at him, both hands out, and grab on arrival |
-| Q / F | LB | Block; tap just before a hit to **parry** (slow-mo + stagger) |
-| R / U | RB | **Super**: grab, 10-punch barrage, finisher (full meter) |
-| Esc · H · M | Start (Menu) · Back (View) · – | Pause · controls · mute |
+| W A S D | left stick | Walk toward / around him. Buildings don't stop you: you wade through them |
+| Shift (tap / hold) | RT | Tap: **sidestep** hop (i-frames). Hold while walking: **run** (31 m/s, smashing through blocks); LMB while running = **tackle** |
+| Space | A | **Leap**: KAISER-OH rocket-jumps, GORRAX heaves himself up. LMB / RMB in the air = **slam** down on him (KAISER KICK / BODY SLAM). Knocked down: tap to get up sooner |
+| LMB / J | X | Combo ×4. KAISER-OH: jab, cross, hook, **KAISER HAMMER**. GORRAX: claw, claw, bite, **TAIL WHIP** (a full spin; the tail sweeps 40 m) |
+| RMB / K (hold) | Y | Heavy; hold to **charge**. Heavy right after a combo hit = **uppercut** |
+| C | LT | **STOMP**: a quake that knocks him off his feet if he's standing near you. Jump it |
+| G / B | D-pad up / R3 | **BEAM**: KAISER BEAM out of the chest emblem / ATOMIC BREATH. A / D sweep it across the skyline. The gauge under your health bar refills in 9 s |
+| E / L / MMB | B | **Grab**: shove him through the buildings, then tap again to **throw** |
+| Q / F | LB | Block; tap just before a hit to **parry** |
+| R / U | RB | **Super** (full meter): KAISER-OH's **SABER FINAL STRIKE**, GORRAX's **NUCLEAR NOVA** |
+| Esc · H · M | Start · Back | Pause · controls · mute |
 
-**With a gamepad** (`src/core/input.js`, menus in `src/game/padmenu.js`), any pad the browser
-reports with the standard mapping works: Xbox, PlayStation, Switch Pro and most others.
-- Plug it in or pull it out at any time; Chrome only reveals a pad after a button press on the
-  page. Unplugging the pad you're playing on pauses the fight.
-- The controls panels (title, pause, Back in a fight) list the connected pad's own button names
-  (Xbox above, ✕ ○ □ △ / L1 R1 L2 R2 on PlayStation), and the fight's hints name them too.
-- Menus: the D-pad or left stick moves a highlight, A presses, B backs out of the pause menu and
-  Start fights from the title. On Quality / City, press A, pick with ← / →, then A to apply (the
-  page reloads) or B to keep the old one.
-- Sticks have a 20% radial dead zone and reach full speed just short of the rim. The triggers fly
-  up / down in proportion to the pull, and past halfway they also count as Space / C, so RT + Y
-  is the uppercut and LT + Y the meteor smash.
-- Hits rumble (dual-rumble, scaled by hit strength) on pads and browsers that support it, and
-  only while the pad is what you're playing with.
+**Gamepads:** any pad with the browser's standard mapping works, plugged in or pulled out at any
+time (`src/core/input.js`, menus in `src/game/padmenu.js`). The controls panels and hints name the
+connected pad's own buttons, hits rumble, and unplugging the pad mid-fight pauses.
 
-**On a phone or tablet** (`src/game/touch.js`), on-screen controls appear during a fight:
-- the left half of the screen is a floating stick that appears under your thumb. It follows him
-  up and down, so there are no up / down buttons;
-- above the stick, SKY is the skyward move: tap it, then PUNCH or HEAVY to dive on him;
-- the right thumb gets PUNCH, HEAVY (hold to charge), DASH (hold: boost), GRAB (tap again to
-  throw), BLOCK and SUPER, which lights up at full meter;
-- the pause button sits under the timer.
-
-Every control tracks its own finger, so they combine freely. The layer hides on the title, pause
-and results screens so those keep normal taps. Add `?touch` to the URL to force it on a desktop.
-
-Phones are tuned for portrait; landscape works too. On a tall screen, `src/game/camera.js` does
-three things: it widens the vertical FOV so there is still some view to the sides, it sits further
-back and centred behind the Heir, and it renders the lower part of a taller frustum
-(`setViewOffset`). That lifts the fight into the top half of the screen, above the thumbs.
+**Phones and tablets** (`src/game/touch.js`): the left half of the screen is a floating walk
+stick, with BEAM (lit when the gauge is full) and STOMP above it. The right thumb gets PUNCH,
+HEAVY (hold to charge), JUMP, DASH (hold: run), GRAB, BLOCK and SUPER. `?touch` forces the layer
+on a desktop.
 
 Best of 3 rounds. **The city remembers**: destruction persists between rounds and rematches.
-When the match is won, a **recap** of its best moments plays (any key or tap skips it; see
-[Match recap](#match-recap)). The results screen offers **Watch recap** (R), **Rematch** (Enter),
-**New city** (N), **Fly around** (X) and **Main menu**; Pause → *New city* also builds a fresh one.
-
-**Fly around** is free roam over the wreckage: the Heir (back on his feet if he lost) flies where
-the camera looks (WASD, Space / C, or the left stick), holding Shift / A boosts him through
-buildings, and dragging the mouse or the right stick looks around; let go and the camera swings
-back in behind him. Esc, Enter or Start brings the results back.
+After the match a **recap** of its best moments plays, then the results offer **Watch recap**,
+**Rematch**, **New city**, **Rampage** and **Main menu**. **Rampage** lets your kaiju loose on
+the wreckage with every move working on the buildings: walk, run, stomp, punch towers down, and
+aim the beam where the camera looks.
 
 ### Tutorial
 
 The title's **Tutorial** (`src/game/tutorial.js`, or `?tutorial`) teaches every move against the
-training dummy, one step at a time: fly, up and down (not on touch, where the stick follows him),
-punch, the four-hit combo, dash, rush, heavy, charge, block, grab, skyward, dive and super. Each
-step unlocks its move and waits until you've done it. Moves not taught yet do nothing, and on a
-touch screen their buttons aren't there yet: each pops in with its step and glows until used, so
-the controls fill up as you learn them. The dummy plays along where a move needs him to. For
-BLOCK he closes in and jabs every 1.5 s; for GRAB he backs off to 30 m so the grab has to reach
-him. There's no clock and nobody is knocked out (damage stops at 1 HP); both fighters heal.
-The card's **Skip ›** or Pause → *Skip step* moves on. The last step ends on **Fight him**
-(a sparring match in the same city), **Keep practising** (every move unlocked, no steps) or
-**Main menu**.
+training dummy, one step at a time: walk, punch, the combo, sidestep, run, heavy, charge, leap,
+slam, stomp, block, grab, beam and super. Each step unlocks its move and waits until you've done
+it; on a touch screen the buttons pop in as they're taught. The dummy closes in and swings for
+BLOCK and backs off for the BEAM. Nobody gets knocked out. It ends on **Fight for real**,
+**Keep practising** or **Main menu**.
 
 ## What to try
 
-1. Hold **K** until the flash, release next to the Patriarch. Aim-assist bends big launches
-   toward the nearest building, so he leaves a body-shaped hole through it.
-2. Tap **Shift** while he's flying away, catch up in slow-mo, and hit him again.
-3. **E** to grab him, steer into a skyscraper or the elevated train, and release to throw.
-4. In **Training** mode he never fights back: knock out a whole storey of a tower to watch it lean,
-   creak and pancake into its own dust cloud.
+1. Hold **K** until it flashes, release next to him: aim-assist bends big knockdowns toward the
+   nearest tower, so he goes in through the facade and comes out in a cloud of rubble.
+2. **G** from across the park: the beam cuts through every building between you, and the street
+   where it lands catches fire. Sweep it with **A** / **D**.
+3. Walk (or run) straight through the base of a skyscraper: lose enough of a storey and the
+   tower leans, creaks and pancakes, sometimes onto whoever's next to it.
+4. **E** to grab him, steer him through a block, release to throw him into the next one.
+5. Build the meter and press **R** next to him: KAISER-OH's sword comes down out of the sky on a
+   lightning bolt; GORRAX's plates blaze before the point-blank nova.
+6. In **Training** he never fights back: wreck Midtown in peace, or win a match and go on a
+   **Rampage**.
+
+## The kaiju
+
+### Scale
+
+The fighters are about **47 m tall** (GORRAX's tail adds another 35 m behind him). Around Madison
+Square, walk-ups come up to the knee, most blocks to the chest, and the Flatiron (87 m), Met Life
+(213 m) and New York Life (187 m) still tower over both of them. Everything in the fight is sized to
+that:
+- reach is ~25 m centre to centre, lunges 8–22 m, a knockdown leaves at 40–60 m/s;
+- gravity is close to real: 26 m/s² on your feet, 20 while knocked flying, so a big body falls
+  like a big body and every swing takes a beat longer than a person's would;
+- the camera sits 90–150 m back at chest height, wider when they're far apart or in the air, with
+  a chase cam when you're knocked flying and a low angle from the street for the supers. It never
+  dodges buildings: anything between the lens and either kaiju's chest dithers out of a
+  body-wide tunnel (`src/world/chunkMaterial.js`), and so does anything within 22 m of the lens;
+- hit sparks, shockwaves, craters, dust, the force field, the shadow frustum and sound falloff
+  all scaled up to match.
+
+### Rigs (`src/game/character.js`)
+
+Both kaiju are built from primitives on one skeleton (the old humanoid joints plus a jaw and a
+five-joint tail), so the pose blending, recorder and recap work for either.
+- **KAISER-OH**: rounded boxes in red, white, blue and gold. V-crest helmet, glowing visor, big
+  pauldrons, a chest emblem that charges up and fires the beam, twin back thrusters with flames
+  for jumps and dives, and the KAISER SABER, hidden until the super.
+- **GORRAX**: capsules and spheres. A barrel body with belly scales, thick clawed legs, a
+  reptile head with a working jaw and teeth, orange eyes, and three rows of dorsal plates down
+  the back and tail that light up blue for the breath.
+- One pose library with per-character overrides: GORRAX hunches, his combo is claw, claw, bite and
+  tail whip, and his breath rears back before leaning in.
+- A **procedural walk** runs on top of whatever pose is playing: legs swing in the direction of
+  travel (forward, back or sideways), knees lift in the swing phase, feet stay flat, the body bobs
+  and rolls, arms swing against the legs, and the tail waves behind. It emits a **footfall** at
+  each step.
+
+### Movement and weight (`src/game/fighter.js`)
+
+- **Footfalls are quakes.** Each one shakes the camera (falling off with distance), rolls dust out
+  from under the foot, paints a cracked footprint into the asphalt, bounces or flattens parked
+  cars, knocks park trees over, derails the elevated train if the foot comes down on it, and caves
+  in the ground floor of whatever building the foot lands in. KAISER-OH's joints clank.
+- **Buildings don't stop you.** Legs and body wade through anything in the way: chunks detach and
+  topple, and a block slows you down to a crawl. Running hits a lot harder. Take out enough of a
+  tower's lower storeys and the structural integrity system brings it down.
+- **Knockdowns.** A launched kaiju goes over backwards, crashes through whatever's behind him,
+  lands flat on his back in a crater (cars and debris blown outward), slides and gouges a trench,
+  then heaves himself back up with a moment of invulnerability.
+- **The two of them collide**: they can't walk through each other, only shove.
+
+### Moves (`src/game/moves.js`)
+
+| | KAISER-OH | GORRAX |
+|---|---|---|
+| Combo | jab, cross, hook, KAISER HAMMER (both fists down) | claw, claw, bite, TAIL WHIP (a full spin, 40 m reach) |
+| Heavy (charged) | rocket punch | double claw from overhead |
+| Leap + attack | KAISER KICK | BODY SLAM |
+| Beam | KAISER BEAM (chest emblem) | ATOMIC BREATH (the plates light up first) |
+| Super | **SABER FINAL STRIKE**: the sword comes down on a lightning bolt, two slashes, the final cleave, and a moment later he explodes | **NUCLEAR NOVA**: jaws clamp on, a flurry of claws, the plates blaze, a point-blank nuclear pulse |
+
+Shared: stomp (a quake that floors anyone standing within ~50 m; braced if blocking), uppercut,
+run-in tackle, grapple and throw, block and parry, sidestep.
+
+- **Fists, feet, tails and heads hit buildings too.** During a move's active frames the striking
+  limb smashes whatever it passes through, so a punch that misses still takes a corner off a tower.
+- **The beam** winds up for 0.75 s, then pours out for 1.7 s. It tracks him slowly and A / D sweep
+  it. Every building along the line gets cut, and where it meets the street it throws up fire,
+  sparks, scorch marks and craters. Blocking only takes chip damage, and about a second of
+  sustained beam knocks him off his feet. Its gauge refills in 9 s.
+- **Grapple:** grab, shove him through buildings for a second (steer with the stick; the
+  robot hoists him overhead), then throw, with aim-assist toward the nearest tower.
+
+### Tokusatsu touches
+
+- **Pyrotechnics:** sparks burst off a body on every solid hit, as on a rubber-suit set.
+- **Kaiju explode when they lose:** a K.O.'d kaiju goes down, lies still for a moment, then blows
+  up in a fireball with black smoke, sparks raining down and everything around it blown outward.
+- **Speech bubbles**: GORRAX taunts like a Saturday-morning villain ("Kneel before GORRAX!");
+  KAISER-OH's pilots call it like a sentai team ("Kaiser-Oh, full power!").
+- **Roars and poses:** between exchanges the bot backs off and roars (windows blow out around his
+  head) or strikes the sentai pose. Pick a kaiju on the title and it makes an entrance.
+- **Round opener** (`src/game/intro.js`): an aerial establishing shot of New York, then the other
+  kaiju crashes down out of the sky in front of the Flatiron, filmed from the street looking up,
+  and roars at the lens; yours drops into Madison Square Park.
 
 ## The destruction system
 
@@ -224,46 +290,12 @@ Early playtesting showed the screen spending most of a fight buried in dust. The
 (`src/fx/smoke.js`, `src/fx/fx.js`):
 - Smoke has two layers with the same cel shading. Hit puffs, fire and black smoke stay opaque,
   inked billows; the big **dust clouds** from breaks and collapses are **see-through**.
-- Smoke clears out of a **visibility tunnel** from the camera to each fighter (dust fades, opaque
-  puffs halftone-dither like the buildings), so both fighters stay visible through any cloud.
+- Smoke clears out of a **visibility tunnel** from the camera to each fighter's chest (dust fades,
+  opaque puffs halftone-dither like the buildings), so both kaiju stay visible through any cloud.
 - Smoke clears within a few metres of the camera, and a puff that would swallow the camera is
   culled outright, so it never fills the screen.
 - Chunk-break dust is smaller and shorter-lived, and dust spawns thin out as the smoke pool fills.
   A collapse still gets its big cloud, but it settles in seconds.
-
-### Scale: the opener, the camera and quiet moments
-
-Fighting at arm's length in front of 100 m buildings hides the city. Four things push back.
-
-- **Round opener** (`src/game/intro.js`). This is a short film, skipped by any key or tap:
-  - Round 1 opens on a letterboxed aerial shot up 5th Avenue toward the Empire State, with a
-    "NEW YORK CITY" location card.
-  - The Patriarch drops out of the sky past the Flatiron's prow and craters the plaza. The Heir
-    comes down into Madison Square Park in slow motion.
-  - A crane shot descends behind him to where the fight camera takes over. Each map gives its
-    landing marks, vista and caption.
-  - Rounds 2 and 3 get a 4-second flyover of the wrecked arena and a double landing. By then a
-    landing mark is usually last round's crater or a rubble pile, so each fighter comes down on
-    the flattest open ground within ~36 m of it instead.
-  - Rounds start on the ground about 80 m apart, so the first thing you do is fly at him over
-    the city.
-- **Camera** (`src/game/camera.js`). How far apart the fighters are sets the framing:
-  - Far apart, it pulls back to about 30 m and up to about 15 m, with a wider FOV, so the
-    skyline is in shot.
-  - In melee it is back over the shoulder.
-  - When a building collapses in view it glances at it for a couple of seconds.
-  - A spring arm keeps it out of buildings.
-- **Breathers** (`src/game/ai.js`). After an exchange the Patriarch sometimes breaks off. He
-  climbs 35–60 m above you, hovers about 40 m away with a line ("Look at this city."), then
-  dives back in, half the time as a dive-bomb. It happens more often on easier difficulties. He
-  also tries to sidestep your dives.
-- **Skyward and long reach** (`src/game/fighter.js`). G / SKY rockets you ~110 m up through the
-  street canyon. At the top time slows and the camera opens onto the city to the horizon; an
-  attack then dives on him at 185 m/s. The dive steers only gently over its last 25 m, so a late
-  dodge makes it crater the street. A heavy released out of reach flies at him first
-  (`homing`, 150 m/s, plowing through buildings), so RMB connects from anywhere.
-- **New York.** Landmarks are called out when they fall ("THE FLATIRON BUILDING IS DOWN!"), and
-  a good share of the parked cars are yellow cabs.
 
 ### Weather and light
 
@@ -305,8 +337,8 @@ key or tap skips to the results, and **Watch recap** plays it again.
 
   Moving data older than 8 seconds is dropped unless it belongs to a highlight, so a match holds
   a few MB.
-- **Highlights.** The game marks big launches, smashes through buildings, street slams, sky
-  dives, supers, the train, building collapses (landmarks count extra) and KOs. Moments close
+- **Highlights.** The game marks big knockdowns, crashes through buildings, street slams, leap
+  slams, supers, the train, building collapses (landmarks count extra) and KOs. Moments close
   together merge into one clip; the best seven are kept while the match runs. The recap takes the
   final KO plus the best of the rest that fit in about 30 seconds, in match order.
 - **Playback.** The simulation stands still. For each clip the recap rebuilds the city as it
@@ -317,10 +349,10 @@ key or tap skips to the results, and **Watch recap** plays it again.
 - **Direction.** Each clip is cut into shots around its two or three biggest moments:
   - a wide orbit or a low angle on the way in;
   - a side-on close-up of each big hit, slowed right down;
-  - a tracking shot alongside whoever's flying;
+  - a tracking shot alongside whoever's been knocked flying;
   - a tower coming down, from a helicopter above the roofs around it (any lower, and in
     Midtown the lens stares at the building next door);
-  - the sky diver from above and behind.
+  - the leap-and-slam from above and behind.
 
   The best hit of the match gets a second look from the reverse angle. Camera spots are checked
   against the city *as it was at that moment* (no lens inside a wall, under a roof or in a park
@@ -400,62 +432,43 @@ skyscraper-ending haymaker stay proportional:
 
 | Channel | Implementation |
 |---|---|
-| Hitstop | Tiered by hit: about 4 frames for jabs, about 10 for heavies, 15–25 plus slow-mo for launchers. The world freezes; shake, text and flash run in real time. |
-| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh), directional kick spring, FOV punch, speed FOV, chase cam when you're launched, cinematic super camera with letterbox. |
-| Screen | Chromatic-aberration kick, radial zoom blur toward the impact, anime speed lines, 2–3-frame **impact frames** (black/white or red inversion), flashes, red damage vignette. |
-| Time | Slow-mo with eased recovery: KO, parry, rush arrival, charged hits. Audio gets muffled and pitched down to match. |
-| Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, verlet-cloth cape. |
-| World | Impact stars, flash spheres, shockwave rings, cel-shaded dissolving smoke billows with inked rims, sparks, rubble, glass glints, stylised blood (toggle), craters, comic onomatopoeia ("KRAKOOM!"). |
-| UI | Lagging chip damage, shaking bars, combo counter with grades, property-damage counter (it climbs into the billions), toasts, speech bubbles. |
-| Audio | Recorded punches with procedural sub thumps, trailer stingers, bass drops, voice shouts and ElevenLabs effects (impacts, crumble, glass, collapse, whooshes, speed-driven wind), all through a compressor and muffled during slow-mo; a metal soundtrack that ducks under big hits, over a looped ambience bed. |
-| Haptics | Gamepad dual-rumble scaled by hit strength. |
+| Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text and flash run in real time. |
+| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh), directional kick spring, FOV punch, every footfall felt by distance, chase cam when you're knocked flying, a low-angle cinematic with letterbox for supers. |
+| Screen | Chromatic-aberration kick, radial zoom blur toward the impact, anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
+| Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
+| Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |
+| World | Tokusatsu spark bursts, impact stars, flash spheres, shockwave rings, beams, fireballs, cel-shaded smoke with inked rims, rubble, glass, craters and footprints, comic onomatopoeia and move names ("ATOMIC BREATH!"). |
+| UI | Lagging chip damage, shaking bars, super meter and beam gauge, combo counter with grades, property-damage counter (it climbs into the billions), toasts, speech bubbles. |
+| Audio | Recorded punches with procedural sub thumps, footfall thuds, beam roar, explosions, voice shouts and roars, ElevenLabs effects for destruction; a metal soundtrack that ducks under big hits. |
+| Haptics | Gamepad dual-rumble scaled by hit strength (and a little for your own footsteps). |
 
 ## Audio
 
 `AudioEngine` (`src/core/audio.js`) plays recorded samples for every sound group it finds in
-`public/sfx/` (full list and sources in `public/sfx/README.md`); the punches and stingers fall back
-to a procedural synthesizer if their files are missing:
+`public/sfx/` (full list and sources in `public/sfx/README.md`), layered with procedural sound:
 - **Fist hits:** ["37 hits/punches"](https://opengameart.org/content/37-hitspunches) by
-  Independent.nu (CC0), trimmed (most files started 0.1–0.27 s late, which makes hits feel
-  sluggish), levelled and split into light and heavy sets.
-- **Stingers** are ElevenLabs sound effects: the FIGHT! braam, super ready, combo streaks, parry,
-  victory, and the charged-heavy build-up (looped, climbing in pitch as the charge fills). Bass
-  drops mark the ROUND banner and the K.O.
-- **Voices:** each fighter has an ElevenLabs voice designed for them (the Heir a fiery young
-  shonen hero, the Patriarch a deep, cold villain), made by `tools/elevenlabs-voices.mjs`. They
-  shout, grunt and cry out on attacks, charging, dashes, sky dives, grabs, supers, blocks, hits,
-  getting up, K.O. and victory. Each fighter says one line at a time, and a line that matters more
-  (a K.O. scream) isn't cut off by a smaller one (a jab grunt).
-- **Soundscape:** a looped dark ambience under everything, and a distant police radio after the
-  first super of a session, both ElevenLabs sound effects.
-- **Impacts, destruction and movement** (blocks, ground slams, smashing through walls, metal, the
-  force field, creaks, collapses, crumble, glass, swings, whooshes, grabs, skids and the speed wind),
-  like the stingers and the soundscape, are ElevenLabs sound effects, made by `tools/elevenlabs-sfx.mjs`.
-  A take that replaces a sound the mix was tuned around is brought to that sound's loudness. It writes new takes as
-  alternatives to compare on `sounds.html` (the dev server's sound library), and `--promote` moves
-  the keepers into the game. Prompts and credit costs are in `public/sfx/elevenlabs.json`.
-- `tools/sfx-index.mjs` writes `public/sfx/index.json` and runs before `npm run dev` and
-  `npm run build`. The group-to-path map is `AudioEngine.GROUPS`; levels by family are in
-  `AudioEngine.MIX`, and per sample for the ElevenLabs effects in `AudioEngine.LEVEL`.
-- **On iPhones:** Safari before 18.4 can't decode Ogg Vorbis, so every `.ogg` (the music and the
-  punches) has an AAC twin (`.mp4`) next to it, made by `node tools/ogg-twins.mjs`
-  (needs ffmpeg; run it after adding or changing an `.ogg`). The game fetches the twin where Ogg
-  won't play, and tries it should an Ogg decode fail. iOS also mutes Web Audio in Silent mode, so on
-  the first tap a looped second of silence starts playing as an `<audio>` element, which moves the
-  page to the playback audio session that Silent mode leaves alone (paused while the page is hidden).
-
-The mix runs through a gentle glue compressor (slow enough attack to keep punch transients) and a
-final limiter. Stingers and voices keep their pitch in slow-mo; everything else bends with it.
+  Independent.nu (CC0) with procedural sub thumps under them.
+- **Voices:** both fighters reuse Bloodline's ElevenLabs voice sets. KAISER-OH gets the fiery young
+  shonen hero, as its pilot shouting from the cockpit. GORRAX gets the deep villain played at
+  ~0.6× speed, so his grunts and screams come out as growls and roars.
+- **Kaiju sounds** are procedural (`AudioEngine.footstep / beamStart / roar / explosion`):
+  - footfalls: a sub-bass thud with a rumble tail and a crunch of asphalt; KAISER-OH's joints
+    clank (the metal hit, pitched way down);
+  - the beam: band-passed roaring noise over a buzzing saw, with a wobble;
+  - GORRAX's roar: his deepest voice line slowed to half speed over a growling saw and a hiss;
+  - explosions: a falling sub boom, a brown-noise blast and crumbling masonry.
+- **Destruction, impacts and movement** (crumble, glass, collapse, creaks, smash-through, ground
+  slams, whooshes, skids) are ElevenLabs sound effects made by `tools/elevenlabs-sfx.mjs`, as are
+  the stingers (FIGHT!, super ready, combo streaks, parry, victory, the charge build-up).
+- Sound falls off over kaiju distances (the camera is ~100 m away). The mix runs through a glue
+  compressor and a limiter; stingers and voices keep their pitch in slow-mo.
+- `tools/sfx-index.mjs` writes `public/sfx/index.json` before `npm run dev` / `npm run build`.
+  On iPhones every `.ogg` has an AAC twin (`node tools/ogg-twins.mjs`).
 
 **Soundtrack** (`public/music/`, from Woffels'
 [Metal OST Asset Pack](https://woffels.itch.io/metal-ost-asset-pack-noitavaino), CC BY): an intro
-theme on the title menu, a Doom-style riff from "FIGHT!" through every round, and a brutal theme on
-the results screen, win or lose. The music:
-- ducks under big hits, slams and collapses, then swells back;
-- slows down like tape in slow-mo and goes muffled under the pause menu;
-- fades out on the final KO; the victory stinger plays, then the results theme takes over.
-
-Pause → **MUSIC** toggles it (remembered per browser); **M** mutes everything.
+theme on the title and during the rampage, a Doom-style riff for the rounds, and a brutal theme
+on the results screen. Pause → **MUSIC** toggles it; **M** mutes everything.
 
 ## Research notes (sources)
 
@@ -484,6 +497,10 @@ The design leaned on these; full notes in the commit history.
 - Camera shake: Squirrel Eiserloh, *Juicing Your Cameras With Math*, GDC 2016
   ([video](https://www.gamedeveloper.com/programming/video-sprucing-up-cameras-with-math)).
 
+- Scale through timing and the low angle: the kaiju films' miniature work (shot slow, from street
+  level) is why the camera here sits at chest height, looks up for the supers, and keeps gravity
+  near real.
+
 ## Code map
 
 ```
@@ -493,18 +510,19 @@ src/render/                renderer + sky + clouds, toon ramps + ink outlines, p
 src/world/city.js          procedural downtown (blocks, setback towers) + outer filler city
 src/world/realCity.js      real-map buildings: footprints -> cells, party walls, setbacks, skyline, landmarks
 src/world/maps/            real map data (tools/extract-nyc-map.mjs)
-src/world/trees.js         park trees (real maps)
 src/world/structures.js    chunk store, impact gradient, integrity, collapse, pancake
-src/world/chunkMaterial.js facade/fracture shader (parent-space patterns, see-through dither)
-src/world/ground.js        deformable heightfield, craters, painted streets (procedural or real), outer ground
-src/world/boundary.js      arena edge force field
-src/world/props.js         parked cars
-src/world/train.js         elevated viaduct + derailing train
+src/world/chunkMaterial.js facade/fracture shader (parent-space patterns, kaiju-wide see-through tunnels)
+src/world/ground.js        deformable heightfield, craters, footprints, painted streets, outer ground
+src/world/                 boundary (force field), props (parked cars), train (elevated viaduct), trees
 src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, Voronoi library
-src/fx/                    pebbles/glass/blood/sparks, cel smoke (opaque + see-through dust), shockwaves, comic text, trails
-src/game/                  character rig + cape, fighter state machine, moves, juice, AI, camera, round opener (intro.js), touch controls, pad menus (padmenu.js), tutorial (tutorial.js), HUD, game flow
+src/fx/                    pebbles/glass/sparks, cel smoke, shockwaves, comic text, trails, beams (beam.js)
+src/fx/fx.js               effect recipes: hits, ground impacts, footfalls, pyrotechnics, fireballs, explosions, sword slashes
+src/game/character.js      the two kaiju rigs, pose library, walk cycle, glow, thrusters, sword
+src/game/fighter.js        kaiju state machine: walk / run / leap / slam, attacks, beam, grapple, supers, knockdowns
+src/game/moves.js          frame data, speeds, beam tuning, per-kaiju move variants
+src/game/                  AI, camera, juice, round opener (intro.js), touch controls, pad menus, tutorial, HUD, game flow
 src/game/recorder.js       match recording + highlight marks; recap.js plays them back as a film
-public/sfx/                CC0 samples + index.json (see Audio)
+public/sfx/                samples + index.json (see Audio)
 public/music/              soundtrack (menu, fight, results)
 tools/                     headless Playwright scenarios (screenshots, perf, soak tests), sfx indexer, NYC map extractor
 ```
@@ -513,27 +531,31 @@ tools/                     headless Playwright scenarios (screenshots, perf, soa
 
 `tools/shot.mjs <url> <out.png> [waitMs] [scenario.mjs]` drives headless Chromium. Scenarios call
 `window.__test.advance(seconds)`, which steps the simulation deterministically without rendering;
-software GL runs at about 1 fps. Included scenarios cover:
-- charged heavies, combos and close-ups;
-- tower collapses (`collapseTower()`);
-- the train derail;
-- the real NYC map: landmark views and a Flatiron collapse (`s_nyc.mjs`);
-- the match recap: bots fight (optionally next to a collapsing tower), then the recap plays
-  through, with a frame per step (`s_recap.mjs`);
-- a 100-second bot-vs-bot soak test for stuck states and NaNs;
-- per-subsystem profiling (`&norender`).
+software GL runs at about 1 fps. Useful ones:
+- `tools/s_kaiju.mjs`: every move once against the dummy, logging both fighters' states, the
+  chunks destroyed and the debris bodies (`?kaiju=gorrax` for the monster);
+- `tools/s_soak.mjs`: 100 s of bot vs bot, checking for stuck states and NaNs;
+- `tools/s_docs.mjs`: the README screenshots;
+- tower collapses (`collapseTower()`), the train, the NYC map and the recap, carried over from
+  Bloodline.
+
+```bash
+node tools/shot.mjs "http://localhost:5173/?fight&norender&mute" /tmp/k.png 4000 tools/s_kaiju.mjs
+node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png 4000 tools/s_soak.mjs
+```
 
 ## Known limitations / next steps
 
-- Characters are primitive-built and procedurally animated, not skinned meshes.
-- Interiors are empty apart from the floor slabs.
+- The kaiju are primitive-built and procedurally animated, not skinned meshes; the walk cycle is
+  a layer on top of the poses, so feet can slide a little on turns.
+- Both voices are Bloodline's ElevenLabs sets: GORRAX's are pitched down, KAISER-OH's are a
+  pilot's. Dedicated roar and servo recordings would sell the scale even better.
+- Interiors are empty apart from the floor slabs, so wading through a building shows its floors
+  and facades but no furniture.
 - Debris doesn't collide with *intact* neighbouring buildings until those buildings take damage
   (lazy collider refinement).
-- Touch controls are fixed on-screen buttons. There is no camera control (the camera is
-  lock-on), and no haptics on iOS, whose Safari has no vibration API.
-- Single-player against the bot only. Local 2P would mostly need a second input mapping and a split
-  or shared camera.
-- Real map: one roof height per footprint, so setbacks are a heuristic and crowns are hand-tagged.
-  Diagonal facades (Broadway) stair-step at 3 m. The park's paths are stylised, not surveyed.
+- The robot doesn't combine from smaller vehicles at the round start; it just drops in.
+- Single-player against the bot only. Local 2P would mostly need a second input mapping and a
+  shared camera.
 - GPU cost was not profiled on real hardware (the dev container renders in software). If a machine
   struggles, use `?quality=medium` or `low`.
