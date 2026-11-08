@@ -17,10 +17,10 @@ from it; the fighters, their scale, movement, moves, AI, camera and effects are 
 
 ![KAISER-OH and GORRAX in Madison Square](docs/shot-fight.jpg)
 
-| ATOMIC BREATH | Knocked flat in the street |
+| ATOMIC BREATH on KAISER-OH's guard | Knocked through a tower |
 |---|---|
 | ![](docs/shot-beam.jpg) | ![](docs/shot-down.jpg) |
-| **Rocket jump into a KAISER KICK** | **The monster drops in on the Flatiron** |
+| **Rocket jump into a KAISER KICK** | **Round opener: the monster lands in a street canyon** |
 | ![](docs/shot-leap.jpg) | ![](docs/shot-intro.jpg) |
 
 **Stack:** three.js r186 (WebGL2) · Rapier 0.21 (WASM, SIMD build) · Vite · plain ES modules.
