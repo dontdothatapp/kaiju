@@ -19,8 +19,18 @@ export const chunkUniforms = {
   uFire: { value: 0.35 },
 };
 
-export function createChunkMaterial() {
+// Three variants of one shader, picked per mesh every frame (world/structures.js updateMaterials):
+//   seeThrough: the camera dither and the two tunnels toward the fighters. They need `discard`,
+//               which switches off early depth rejection for the whole draw, so only the few
+//               buildings actually between the camera and a kaiju (and the debris) pay for it.
+//   plain:      everything else nearby: the full facade, no discard.
+//   far:        buildings a few hundred metres out: the facade without the crack, fire and
+//               spiderweb detail that would be sub-pixel there anyway.
+export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
   const mat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradientMap(3) });
+  mat.defines = {};
+  if (seeThrough) mat.defines.SEE_THROUGH = 1;
+  if (far) mat.defines.FAR = 1;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, chunkUniforms);
     shader.vertexShader = shader.vertexShader
@@ -98,6 +108,7 @@ export function createChunkMaterial() {
       .replace('void main() {', /* glsl */`
         void main() {
           // --- camera see-through: dither out geometry hugging the camera or blocking the fighters ---
+          #ifdef SEE_THROUGH
           {
             float th = bayer4(gl_FragCoord.xy);
             float cd = distance(vWPos, cameraPosition);
@@ -109,6 +120,7 @@ export function createChunkMaterial() {
             float d2 = segDist(vWPos, cameraPosition, uFocus2, t);
             if (t < 0.86 && d2 < 20.0 && (d2 / 20.0) < th * 0.9 + 0.05) discard;
           }
+          #endif
       `)
       .replace('#include <color_fragment>', /* glsl */`
         #include <color_fragment>
@@ -127,7 +139,11 @@ export function createChunkMaterial() {
           float ink = 0.0;
           float mpp = max(length(fwidth(P)), 1e-4); // metres per pixel: thin cracks fade out, not shimmer
           float ld = dmg > 0.01 ? localDmg(P, dmg, vHit) : 0.0;
+          #ifdef FAR
+          float sn = 0.5;
+          #else
           float sn = dmg > 0.01 ? vnoise(P * 0.9 + seed) * 0.6 + vnoise(P * 2.7 + seed) * 0.4 : 0.5;
+          #endif
           if (!(onX || onY || onZ)) {
             // fresh fracture surface: raw concrete + rebar-ish speckle
             float n = h31(floor(P * 5.0) + seed);
@@ -176,6 +192,7 @@ export function createChunkMaterial() {
                 float shard = step(edge * 6.0, h31(floor(vec3(q * 9.0, seed))) * 0.6);
                 diffuseColor.rgb = mix(vec3(0.05, 0.05, 0.07), vec3(0.55, 0.75, 0.85), shard);
                 // the floors an impact tore open are burning: flames licking up from the sill
+                #ifndef FAR
                 float fire = uFire * step(0.001, vHit.w) * smoothstep(0.55, 0.85, wd) * step(h31(vec3(seed, 6.6, 1.2)), 0.6);
                 if (fire > 0.0) {
                   // cel flames: a yellow core inside orange tongues, a red glow on the ceiling
@@ -189,6 +206,7 @@ export function createChunkMaterial() {
                   diffuseColor.rgb = mix(diffuseColor.rgb, fc, clamp(k * outer, 0.0, 1.0)) + vec3(0.55, 0.1, 0.02) * glow * k;
                   gGlassEmit += (fc * outer * 1.4 + vec3(0.8, 0.18, 0.03) * glow) * k;
                 }
+                #endif
               } else {
                 // comic glass: two-tone sky reflection + diagonal glint streaks
                 vec3 deep = vec3(0.16, 0.32, 0.45);
@@ -199,6 +217,7 @@ export function createChunkMaterial() {
                 float glint = step(0.955, streak) * step(streak, 0.985) * step(style, 0.5);
                 g = mix(g, vec3(0.95, 0.98, 1.0), glint * 0.85);
                 if (style < 0.5) g = mix(g, base * 0.6 + deep * 0.4, 0.15);
+                #ifndef FAR
                 if (wd > 0.15) {
                   // cracked pane: milky glass and a spiderweb from a random point
                   vec2 c0 = vec2(h31(vec3(seed, 5.1, 0.0)), h31(vec3(seed, 0.0, 8.7))) - 0.5;
@@ -211,6 +230,7 @@ export function createChunkMaterial() {
                   glint *= 0.3;
                   ink = max(ink, web * 0.75);
                 }
+                #endif
                 gGlassEmit = vec3(0.25, 0.32, 0.38) * glint + deep * 0.12;
                 // after dark some rooms are lit (cracked panes have lost their power)
                 if (h31(vec3(seed, 9.1, 4.4)) < uLights && wd < 0.15) {
@@ -244,6 +264,7 @@ export function createChunkMaterial() {
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11))), ld * 0.35);
             diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.58, 0.55, 0.52), smoothstep(0.38, 0.42, sv) * 0.8);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.14, 0.12, 0.11), smoothstep(0.85, 0.89, sv) * 0.7);
+            #ifndef FAR
             if (vHit.w > 0.0 && (onX || onY || onZ)) {
               // cracks radiating from the impact across the face, plus a ring around the crater
               vec3 rel = P - vHit.xyz;
@@ -263,6 +284,7 @@ export function createChunkMaterial() {
               float crack = step(0.985 - dmg * 0.05, h31(floor(P * vec3(14.0, 3.0, 14.0)) + seed));
               ink = max(ink, crack * dmg);
             }
+            #endif
             // dust settles on whatever faces up once things have been wrecked
             float dc = clamp((dmg - 0.2) * 1.3, 0.0, 0.7) * smoothstep(0.5, 0.85, vUp);
             diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.64, 0.6, 0.54) * (0.88 + 0.24 * sn), dc);
@@ -277,8 +299,21 @@ export function createChunkMaterial() {
         totalEmissiveRadiance += gGlassEmit;
       `);
   };
-  mat.customProgramCacheKey = () => 'chunk-v3';
+  mat.customProgramCacheKey = () => 'chunk-v4' + (seeThrough ? '-see' : '') + (far ? '-far' : '');
   return mat;
+}
+
+// The three variants, made once and shared by every city mesh and all the debris.
+let _variants = null;
+export function chunkMaterials() {
+  if (!_variants) {
+    _variants = {
+      seeThrough: createChunkMaterial({ seeThrough: true }),
+      plain: createChunkMaterial({ seeThrough: false }),
+      far: createChunkMaterial({ seeThrough: false, far: true }),
+    };
+  }
+  return _variants;
 }
 
 // Per-instance attribute bundle used by the static chunk mesh and every debris mesh.

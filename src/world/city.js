@@ -2,12 +2,14 @@
 // non-destructible skyline ring for scale.
 import * as THREE from 'three';
 import { makeRng } from '../core/math.js';
-import { KIND } from './structures.js';
+import { KIND, chunkBoxGeometry } from './structures.js';
 import { STYLE, addChunkAttributes } from './chunkMaterial.js';
 
 export const CITY = { BLOCKS: 6, PITCH: 76, STREET: 22, SIDEWALK: 3.5, WT: 1.0, CELL: 3, FLOOR: 3.6 };
 export const CITY_HALF = (CITY.BLOCKS * CITY.PITCH) / 2;
 export const PARK = { i: 2, j: 2 };
+// the destructible core is a square; the force field (boundary.js) stands just past its edge
+export const ARENA = CITY_HALF + 6;
 
 export const PALETTES = {
   [STYLE.GLASS]: [0x55657a, 0x2f3d52, 0xb9c4cc, 0x6f7f74, 0x8a8f99],
@@ -93,7 +95,7 @@ export function generateCity(destruction, scene, seed, quality) {
     if (i >= 0 && i < CITY.BLOCKS && j >= 0 && j < CITY.BLOCKS) continue;
     layout.blocks.push({ ...blockRect(i, j), park: false, outer: true });
   }
-  createSkyline(scene, destruction.material, rng);
+  createSkyline(scene, destruction, rng);
   // round intro (game/intro.js): your kaiju lands in the park, the other one on the intersection
   // at its corner, and the establishing shot looks across downtown
   const h = CITY.PITCH / 2;
@@ -204,7 +206,7 @@ function buildBuilding(D, rng, lot) {
 // The city keeps going past the arena: non-destructible blocks continue the street grid out to
 // the haze, then a sparse far skyline. Single boxes reuse the chunk shader with per-floor window
 // cells, so they read like the destructible core. The tallest towers get aircraft warning lights.
-function createSkyline(scene, material, rng) {
+function createSkyline(scene, destruction, rng) {
   const items = [];
   const R = 9; // rings of filler blocks around the 6x6 core
   for (let i = -R; i < CITY.BLOCKS + R; i++) {
@@ -238,32 +240,49 @@ function createSkyline(scene, material, rng) {
     if (x > CITY_HALF + 300) continue;
     items.push({ x, z, w: rng.range(25, 60), d: rng.range(25, 60), h: rng.range(30, 90) + (rng() < 0.3 ? rng.range(60, 180) : 0), style: rng.pick([STYLE.GLASS, STYLE.OFFICE]) });
   }
-  addSkylineMesh(scene, material, items, rng);
+  addSkylineMesh(scene, destruction, items, rng);
 }
 
-// Non-destructible boxes { x, z, w, d, h, style, y?, color?, beacon? } as one instanced mesh that
-// reuses the chunk shader (per-floor window cells), plus blinking aircraft warning lights.
-export function addSkylineMesh(scene, material, items, rng) {
-  const geo = new THREE.BoxGeometry(1, 1, 1);
-  const attrs = addChunkAttributes(geo, items.length);
-  const mesh = new THREE.InstancedMesh(geo, material, items.length);
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+// Non-destructible boxes { x, z, w, d, h, style, y?, color?, beacon? } as instanced meshes that
+// reuse the chunk shader (per-floor window cells), plus blinking aircraft warning lights. The
+// boxes are grouped into 400 m cells: each cell is culled against the camera and the shadow
+// camera on its own, and only the cells near the arena cast shadows at all.
+export function addSkylineMesh(scene, D, items, rng) {
+  const CELL = 400;
+  const cells = new Map();
+  for (const it of items) {
+    const k = Math.floor(it.x / CELL) * 4096 + Math.floor(it.z / CELL);
+    if (!cells.has(k)) cells.set(k, []);
+    cells.get(k).push(it);
+  }
+  const q = new THREE.Quaternion(), m = new THREE.Matrix4();
   const beacons = [];
-  items.forEach((it, i) => {
-    const y = it.y || 0;
-    m.compose(new THREE.Vector3(it.x, y + it.h / 2, it.z), q, new THREE.Vector3(it.w, it.h, it.d));
-    mesh.setMatrixAt(i, m);
-    mesh.setColorAt(i, it.color || new THREE.Color(rng.pick(PALETTES[it.style])));
-    const [ww, wh] = WIN[it.style] || [0, 0]; // slab / concrete styles have no windows
-    attrs.style.array.set([ww, wh, it.style, 0], i * 4);
-    attrs.parent.array.set([it.w, it.h, it.d, rng() * 100], i * 4);
-    attrs.cell.array.set([it.w / Math.max(1, Math.round(it.w / 3)), CITY.FLOOR, it.d / Math.max(1, Math.round(it.d / 3))], i * 3);
-    if (it.beacon ?? it.h > 85) beacons.push(new THREE.Vector3(it.x, y + it.h + 1.2, it.z));
-  });
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  mesh.computeBoundingSphere();
-  scene.add(mesh);
+  for (const list of cells.values()) {
+    const geo = chunkBoxGeometry();
+    const attrs = addChunkAttributes(geo, list.length);
+    const mesh = new THREE.InstancedMesh(geo, D.materials.plain, list.length);
+    const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    list.forEach((it, i) => {
+      const y = it.y || 0;
+      m.compose(new THREE.Vector3(it.x, y + it.h / 2, it.z), q, new THREE.Vector3(it.w, it.h, it.d));
+      mesh.setMatrixAt(i, m);
+      mesh.setColorAt(i, it.color || new THREE.Color(rng.pick(PALETTES[it.style])));
+      const [ww, wh] = WIN[it.style] || [0, 0]; // slab / concrete styles have no windows
+      attrs.style.array.set([ww, wh, it.style, 0], i * 4);
+      attrs.parent.array.set([it.w, it.h, it.d, rng() * 100], i * 4);
+      attrs.cell.array.set([it.w / Math.max(1, Math.round(it.w / 3)), CITY.FLOOR, it.d / Math.max(1, Math.round(it.d / 3))], i * 3);
+      min.min(new THREE.Vector3(it.x - it.w / 2, y, it.z - it.d / 2));
+      max.max(new THREE.Vector3(it.x + it.w / 2, y + it.h, it.z + it.d / 2));
+      if (it.beacon ?? it.h > 85) beacons.push(new THREE.Vector3(it.x, y + it.h + 1.2, it.z));
+    });
+    // shadows reach ~230 m from the fight, which stays inside the arena: far cells can't cast one
+    const dx = Math.max(min.x - ARENA, -ARENA - max.x, 0), dz = Math.max(min.z - ARENA, -ARENA - max.z, 0);
+    mesh.castShadow = Math.hypot(dx, dz) < 260;
+    mesh.receiveShadow = true;
+    mesh.name = 'skyline';
+    D.registerCityMesh(mesh, min, max);
+    scene.add(mesh);
+  }
   if (beacons.length) {
     const bm = new THREE.MeshBasicMaterial({ color: new THREE.Color(2, 0.2, 0.2), toneMapped: false });
     const bmesh = new THREE.InstancedMesh(new THREE.SphereGeometry(0.9, 8, 6), bm, beacons.length);

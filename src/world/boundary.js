@@ -2,9 +2,9 @@
 // glowing grid "force field" fades in around them, so the limit reads as part of the world
 // instead of an invisible wall.
 import * as THREE from 'three';
-import { CITY_HALF } from './city.js';
+import { ARENA } from './city.js';
 
-export const ARENA = CITY_HALF + 6;
+export { ARENA };
 
 export class Boundary {
   constructor(scene) {

@@ -10,7 +10,7 @@
 //   collapse       -> creak/dust wind-up, failure travelling outward, coherent lean,
 //                     merged slabs that shatter on landing and crush what is below (pancaking)
 import * as THREE from 'three';
-import { createChunkMaterial, addChunkAttributes, STYLE } from './chunkMaterial.js';
+import { chunkMaterials, chunkUniforms, addChunkAttributes, STYLE } from './chunkMaterial.js';
 import { G } from '../core/context.js';
 import { clamp, rand, randomUnit, smoothstep } from '../core/math.js';
 
@@ -20,6 +20,24 @@ const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _q0 = new THREE.Quaternion();
 const KIND = { WALL: 0, SLAB: 1, CORNER: 2, SOLID: 3 };
+const FAR_DIST = 350;        // beyond this a building gets the detail-less shader
+const TUNNEL_A = 26, TUNNEL_B = 20; // see-through tunnel radii (must match chunkMaterial.js)
+const INTEGRITY_EVERY = 0.2; // seconds between integrity checks of one structure
+const INTEGRITY_PER_FRAME = 1;
+const _box = new THREE.Box3();
+const _sph = new THREE.Sphere();
+
+// Every city mesh shares the 1x1x1 box; each one gets its own geometry object so it can carry its
+// own per-instance attributes, but the vertex buffers are the same three.js attributes.
+let _boxGeo = null;
+export function chunkBoxGeometry() {
+  if (!_boxGeo) { _boxGeo = new THREE.BoxGeometry(1, 1, 1); _boxGeo.computeBoundingSphere(); }
+  const g = new THREE.BufferGeometry();
+  g.setIndex(_boxGeo.index);
+  for (const k of ['position', 'normal', 'uv']) g.setAttribute(k, _boxGeo.attributes[k]);
+  g.boundingSphere = _boxGeo.boundingSphere.clone();
+  return g;
+}
 
 export class Structure {
   constructor(id, o) {
@@ -45,6 +63,12 @@ export class Structure {
     this.anchorLevel = o.anchorLevel ?? 0;
     this.aliveCount = 0;
     this.groundAnchors = o.groundAnchors || null; // optional predicate (x,z)->bool for tracks
+    this.mesh = null;          // this building's InstancedMesh (finalize)
+    this.attrs = null;
+    this.levelBoxes = null;    // refined: fixed box colliders per storey, until a storey goes fine
+    this.fine = null;          // refined: Uint8Array, 1 = storey has one collider per chunk
+    this.dirtyLevels = null;   // storeys that lost chunks since the last _flushLevels
+    this.integrityT = -1;
   }
   ci(x, y, z) { return x + this.nx * (z + this.nz * y); }
 }
@@ -60,9 +84,22 @@ export class Destruction {
     this.collapses = [];
     this.falls = [];       // dust, rubble and shaking for buildings on their way down
     this.crushBudget = 0;
-    this.material = createChunkMaterial();
+    this.materials = chunkMaterials();
+    this.material = this.materials.seeThrough; // what the debris draws with
+    this.cityMeshes = [];      // every static city mesh (buildings, skyline cells) + bounds, for updateMaterials
+    this.dirtyStructs = new Set();
     this.pendingIntegrity = new Set();
     this.eventsThisFrame = 0;
+    this.time = 0;
+  }
+
+  // A static mesh drawn with the chunk shader; its material is picked per frame by distance and
+  // by whether it stands between the camera and a fighter.
+  registerCityMesh(mesh, min, max) {
+    const c = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
+    mesh.boundingSphere = new THREE.Sphere(c, c.distanceTo(max));
+    mesh.frustumCulled = true;
+    this.cityMeshes.push({ mesh, min: min.clone(), max: max.clone() });
   }
 
   // ---------- generation ----------
@@ -94,26 +131,6 @@ export class Destruction {
 
   finalize() {
     const n = this.defs.length;
-    const geo = new THREE.BoxGeometry(1, 1, 1);
-    const attrs = addChunkAttributes(geo, n);
-    const mesh = new THREE.InstancedMesh(geo, this.material, n);
-    for (const d of this.defs) {
-      _m.compose(d.c, _q0, d.size);
-      mesh.setMatrixAt(d.id, _m);
-      mesh.setColorAt(d.id, d.color);
-      attrs.style.array.set([d.style[0], d.style[1], d.style[2], 0], d.id * 4);
-      attrs.parent.array.set([d.size.x, d.size.y, d.size.z, d.seed], d.id * 4);
-      attrs.offset.array.set([0, 0, 0], d.id * 3);
-      const cell = d.cell || d.size;
-      attrs.cell.array.set([cell.x, cell.y, cell.z], d.id * 3);
-    }
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.computeBoundingSphere();
-    mesh.name = 'city-chunks';
-    this.scene.add(mesh);
-    this.mesh = mesh;
-    this.attrs = attrs;
     for (const s of this.structs) {
       s.min.set(Infinity, Infinity, Infinity); s.max.set(-Infinity, -Infinity, -Infinity);
       for (const id of s.chunkIds) {
@@ -122,6 +139,38 @@ export class Destruction {
         s.min.min(_v2.copy(d.c).sub(_v));
         s.max.max(_v2.copy(d.c).add(_v));
       }
+    }
+    // One InstancedMesh per structure: three.js then culls each building against the camera and
+    // the shadow camera on its own (one mesh for the whole city was drawn in full every frame).
+    for (const s of this.structs) {
+      const cnt = s.chunkIds.length;
+      if (!cnt) continue;
+      const geo = chunkBoxGeometry();
+      const attrs = addChunkAttributes(geo, cnt);
+      const mesh = new THREE.InstancedMesh(geo, this.materials.plain, cnt);
+      s.chunkIds.forEach((id, li) => {
+        const d = this.defs[id];
+        d.li = li;
+        // interior floor slabs stay out of the draw until the building is first touched: they
+        // can't be seen through an intact facade (over a third of all chunks)
+        const hidden = d.kind === KIND.SLAB && s.kind === 'building';
+        if (hidden) mesh.setMatrixAt(li, ZERO_M); else mesh.setMatrixAt(li, _m.compose(d.c, _q0, d.size));
+        mesh.setColorAt(li, d.color);
+        attrs.style.array.set([d.style[0], d.style[1], d.style[2], 0], li * 4);
+        attrs.parent.array.set([d.size.x, d.size.y, d.size.z, d.seed], li * 4);
+        attrs.offset.array.set([0, 0, 0], li * 3);
+        const cell = d.cell || d.size;
+        attrs.cell.array.set([cell.x, cell.y, cell.z], li * 3);
+      });
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      mesh.name = 'city-' + s.id;
+      // a full upload asked for (the recap) must not be cut short by a range added before it went up
+      for (const a of [mesh.instanceMatrix, attrs.style, attrs.hit]) { a.fullPending = false; a.onUpload(() => { a.fullPending = false; }); }
+      this.registerCityMesh(mesh, s.min, s.max);
+      this.scene.add(mesh);
+      s.mesh = mesh;
+      s.attrs = attrs;
       if (s.intactBoxes) {
         // irregular footprints (real maps): a few boxes hug the shape instead of one bounding box
         s.intactCollider = s.intactBoxes.map(([x0, y0, z0, x1, y1, z1]) =>
@@ -131,7 +180,55 @@ export class Destruction {
       const c = _v.copy(s.min).add(s.max).multiplyScalar(0.5), h = _v2.copy(s.max).sub(s.min).multiplyScalar(0.5);
       s.intactCollider = G.physics.fixedBox(c.x, c.y, c.z, h.x, h.y, h.z);
     }
-    console.log(`[city] ${this.structs.length} structures, ${n} chunks`);
+    console.log(`[city] ${this.structs.length} structures, ${n} chunks, ${this.cityMeshes.length} meshes`);
+  }
+
+  // ---------- per-chunk instance writes ----------
+  _range(attr, lo, count) {
+    if (!attr.fullPending) attr.addUpdateRange(lo, count);
+    attr.needsUpdate = true;
+  }
+
+  // the chunk's instance: in place, or scaled to nothing
+  showChunk(id, on, upload = true) {
+    const d = this.defs[id], s = this.structs[d.s], m = s.mesh;
+    if (on) _m.compose(d.c, _q0, d.size); else _m.copy(ZERO_M);
+    m.setMatrixAt(d.li, _m);
+    if (upload) this._range(m.instanceMatrix, d.li * 16, 16);
+  }
+
+  // the damage value the shader sees (style.w)
+  setStyleW(id, v, upload = true) {
+    const d = this.defs[id], a = this.structs[d.s].attrs.style;
+    a.array[d.li * 4 + 3] = v;
+    if (upload) this._range(a, d.li * 4, 4);
+  }
+
+  // after a batch of showChunk / setStyleW writes without uploads: send every building's whole
+  // matrix and style buffers up (the recap rewinds the city this way)
+  uploadAll() {
+    for (const s of this.structs) {
+      if (!s.mesh) continue;
+      for (const a of [s.mesh.instanceMatrix, s.attrs.style]) { a.clearUpdateRanges(); a.fullPending = true; a.needsUpdate = true; }
+    }
+  }
+
+  // Pick each city mesh's shader for this frame: the see-through (discard) variant only where a
+  // building hugs the camera or stands in a tunnel from the camera to a fighter, the detail-less
+  // variant far away, the plain one otherwise. fA / fB: the fighters' chests (or null).
+  updateMaterials(camPos, fA, fB) {
+    const M = this.materials;
+    const fade = chunkUniformsFade();
+    for (const cm of this.cityMeshes) {
+      const mesh = cm.mesh;
+      if (!mesh.visible) continue;
+      _box.min.copy(cm.min); _box.max.copy(cm.max);
+      const dCam = _box.distanceToPoint(camPos);
+      let mat;
+      if (dCam < fade + 1 || (fA && segmentNearBox(camPos, fA, 0.9, _box, TUNNEL_A)) || (fB && segmentNearBox(camPos, fB, 0.86, _box, TUNNEL_B))) mat = M.seeThrough;
+      else mat = dCam > FAR_DIST ? M.far : M.plain;
+      if (mesh.material !== mat) mesh.material = mat;
+    }
   }
 
   // ---------- queries ----------
@@ -193,7 +290,11 @@ export class Destruction {
     return hit;
   }
 
-  // ---------- breaking ----------
+  // ---------- colliders ----------
+  // An untouched building is a few fixed boxes. The first hit turns it into one box per storey,
+  // and only the storeys that lose chunks get a collider per chunk (_fineLevel): debris never
+  // reaches the inside of an intact storey, so a 40-storey tower keeps ~40 colliders instead of
+  // 2,000, and the physics broadphase stays small over a long match.
   ensureColliders(s) {
     if (s.refined) return;
     s.refined = true;
@@ -201,26 +302,81 @@ export class Destruction {
       for (const c of [].concat(s.intactCollider)) G.physics.removeCollider(c);
       s.intactCollider = null;
     }
+    this._revealSlabs(s);
+    s.fine = new Uint8Array(s.ny);
+    s.levelBoxes = new Array(s.ny).fill(null);
+    s.dirtyLevels = new Set();
+    if (s.kind !== 'building') { for (let y = 0; y < s.ny; y++) this._fineLevel(s, y); return; }
+    // each storey's shape: the setback rectangles clipped to the storey, else the storey's own bounds
+    const lo = new Float32Array(s.ny * 3).fill(Infinity), hi = new Float32Array(s.ny * 3).fill(-Infinity);
     for (const id of s.chunkIds) {
       const d = this.defs[id];
       if (!d.alive) continue;
+      const y = d.level;
+      for (let k = 0; k < 3; k++) {
+        const c = k === 0 ? d.c.x : k === 1 ? d.c.y : d.c.z, h = (k === 0 ? d.size.x : k === 1 ? d.size.y : d.size.z) / 2;
+        lo[y * 3 + k] = Math.min(lo[y * 3 + k], c - h); hi[y * 3 + k] = Math.max(hi[y * 3 + k], c + h);
+      }
+    }
+    for (let y = 0; y < s.ny; y++) {
+      if (lo[y * 3] === Infinity) continue;
+      const y0 = lo[y * 3 + 1], y1 = hi[y * 3 + 1];
+      const boxes = [];
+      if (s.intactBoxes) {
+        for (const [x0, b0, z0, x1, b1, z1] of s.intactBoxes) {
+          const a = Math.max(y0, b0), b = Math.min(y1, b1);
+          if (b - a > 0.05) boxes.push([x0, a, z0, x1, b, z1]);
+        }
+      }
+      if (!boxes.length) boxes.push([lo[y * 3], y0, lo[y * 3 + 2], hi[y * 3], y1, hi[y * 3 + 2]]);
+      s.levelBoxes[y] = boxes.map(([x0, b0, z0, x1, b1, z1]) => G.physics.fixedBox((x0 + x1) / 2, (b0 + b1) / 2, (z0 + z1) / 2, (x1 - x0) / 2, (b1 - b0) / 2, (z1 - z0) / 2));
+    }
+  }
+
+  // one collider per alive chunk of this storey, replacing its box
+  _fineLevel(s, y) {
+    if (y < 0 || y >= s.ny || s.fine[y]) return;
+    s.fine[y] = 1;
+    if (s.levelBoxes[y]) { for (const c of s.levelBoxes[y]) G.physics.removeCollider(c); s.levelBoxes[y] = null; }
+    for (const id of s.chunkIds) {
+      const d = this.defs[id];
+      if (!d.alive || d.level !== y) continue;
       const c = G.physics.fixedBox(d.c.x, d.c.y, d.c.z, d.size.x / 2, d.size.y / 2, d.size.z / 2);
       this.colliders[id] = c;
       this.colliderChunk.set(c.handle, id);
     }
   }
 
+  // storeys that lost chunks this batch get their per-chunk colliders (after the batch, so the
+  // chunks that just broke never get one)
+  _flushLevels() {
+    for (const s of this.dirtyStructs) {
+      for (const y of s.dirtyLevels) this._fineLevel(s, y);
+      s.dirtyLevels.clear();
+    }
+    this.dirtyStructs.clear();
+  }
+
+  // the interior floor slabs were left out of the draw while the facade was intact
+  _revealSlabs(s) {
+    if (s.kind !== 'building') return;
+    for (const id of s.chunkIds) {
+      const d = this.defs[id];
+      if (d.kind === KIND.SLAB && d.alive) this.showChunk(id, true);
+    }
+  }
+
+  // ---------- breaking ----------
   _hide(id) {
     const d = this.defs[id];
     d.alive = false;
     const s = this.structs[d.s];
     s.aliveCount--;
     if (d.kind === KIND.WALL || d.kind === KIND.CORNER) s.levelAlive[d.level]--;
-    this.mesh.setMatrixAt(id, ZERO_M);
-    this.mesh.instanceMatrix.addUpdateRange(id * 16, 16);
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.showChunk(id, false);
     const c = this.colliders[id];
     if (c) { this.colliderChunk.delete(c.handle); G.physics.removeCollider(c); this.colliders[id] = null; }
+    if (s.dirtyLevels) { s.dirtyLevels.add(d.level); this.dirtyStructs.add(s); }
     s.dirty = true;
     this.pendingIntegrity.add(s);
     G.stats.chunksDestroyed++;
@@ -230,18 +386,16 @@ export class Destruction {
   // reaches it hardest, `f` being that impact's falloff at the chunk (1 at the centre).
   _setDamage(id, v, hitPos = null, R = 0, f = 0) {
     const d = this.defs[id];
+    const a = this.structs[d.s].attrs;
     if (hitPos && (!d.hit || f >= d.hitF)) {
       d.hit = [hitPos.x - d.c.x, hitPos.y - d.c.y, hitPos.z - d.c.z, R];
       d.hitF = f;
-      this.attrs.hit.array.set(d.hit, id * 4);
-      this.attrs.hit.addUpdateRange(id * 4, 4);
-      this.attrs.hit.needsUpdate = true;
+      a.hit.array.set(d.hit, d.li * 4);
+      this._range(a.hit, d.li * 4, 4);
     }
     if (v <= d.dmg) return;
     d.dmg = v;
-    this.attrs.style.array[id * 4 + 3] = v;
-    this.attrs.style.addUpdateRange(id * 4, 4);
-    this.attrs.style.needsUpdate = true;
+    this.setStyleW(id, v);
   }
 
   _protoOf(d) {
@@ -337,6 +491,7 @@ export class Destruction {
       G.audio && G.audio.crumble(clamp(res.volume / 120, 0.2, 1), pos);
     }
     if (res.glass) G.audio && G.audio.glass(clamp(res.glass / 10, 0.2, 1), pos);
+    this._flushLevels();
     return res;
   }
 
@@ -350,6 +505,7 @@ export class Destruction {
     const base = new THREE.Vector3(lv.x * 0.6, lv.y * 0.3, lv.z * 0.6);
     const mode = G.debris.freeBudget > 60 && Math.random() < 0.5 ? 'detach' : 'pulverize';
     this.breakChunk(id, mode, (wp, out) => out.copy(base).add(randomUnit(_v2).multiplyScalar(rand(2, 7))), { crusher: true });
+    this._flushLevels();
     if (Math.random() < 0.35) G.fx.dustRing(d.c, d.size.x * 1.5, 6);
   }
 
@@ -371,6 +527,7 @@ export class Destruction {
       this.breakChunk(id, mode, (wp, o) => o.copy(vel).add(randomUnit(_v).multiplyScalar(2)), { dust: n % 3 === 0 });
       n++;
     }
+    this._flushLevels();
     if (!n) return;
     const w = Math.max(s.max.x - s.min.x, s.max.z - s.min.z);
     G.fx.dustRing(c, w * 0.7, 8, 'dust', 0.7);
@@ -411,18 +568,23 @@ export class Destruction {
       const id = s.cells[c];
       if (id >= 0 && this.defs[id].alive && (!s.groundAnchors || s.groundAnchors(x, z))) { reach[c] = 1; stack.push(c); }
     }
-    const nx = s.nx, nz = s.nz, plane = nx * nz;
+    const nx = s.nx, nz = s.nz, plane = nx * nz, cells = s.cells, defs = this.defs;
+    const visit = (n) => {
+      if (reach[n]) return;
+      const id = cells[n];
+      if (id < 0 || !defs[id].alive) return;
+      reach[n] = 1;
+      stack.push(n);
+    };
     while (stack.length) {
       const c = stack.pop();
-      const x = c % nx, z = Math.floor(c / nx) % nz, y = Math.floor(c / plane);
-      const nb = [x > 0 ? c - 1 : -1, x < nx - 1 ? c + 1 : -1, z > 0 ? c - nx : -1, z < nz - 1 ? c + nx : -1, y > 0 ? c - plane : -1, y < s.ny - 1 ? c + plane : -1];
-      for (const n of nb) {
-        if (n < 0 || reach[n]) continue;
-        const id = s.cells[n];
-        if (id < 0 || !this.defs[id].alive) continue;
-        reach[n] = 1;
-        stack.push(n);
-      }
+      const x = c % nx, z = ((c / nx) | 0) % nz, y = (c / plane) | 0;
+      if (x > 0) visit(c - 1);
+      if (x < nx - 1) visit(c + 1);
+      if (z > 0) visit(c - nx);
+      if (z < nz - 1) visit(c + nx);
+      if (y > 0) visit(c - plane);
+      if (y < s.ny - 1) visit(c + plane);
     }
     for (const id of s.chunkIds) {
       const d = this.defs[id];
@@ -627,9 +789,20 @@ export class Destruction {
   }
 
   update(dt) {
+    this.time += dt;
     this.crushBudget = 10;
-    for (const s of this.pendingIntegrity) this._checkIntegrity(s);
-    this.pendingIntegrity.clear();
+    this._flushLevels();
+    // integrity is a flood fill over the whole building (6 ms on a tower): a structure gets one
+    // at most every INTEGRITY_EVERY seconds, a few structures per frame
+    let checked = 0;
+    for (const s of this.pendingIntegrity) {
+      if (checked >= INTEGRITY_PER_FRAME) break;
+      if (this.time - s.integrityT < INTEGRITY_EVERY) continue;
+      s.integrityT = this.time;
+      this.pendingIntegrity.delete(s);
+      this._checkIntegrity(s);
+      checked++;
+    }
 
     for (let k = this.collapses.length - 1; k >= 0; k--) {
       const col = this.collapses[k];
@@ -678,6 +851,7 @@ export class Destruction {
         this._releaseGroup(col, col.items[col.i].g);
         col.i++; released++;
       }
+      this._flushLevels();
       if (col.i >= col.items.length && (!pk || pk.level <= pk.stop)) {
         this.collapses.splice(k, 1);
         col.s.collapsing = false;
@@ -749,7 +923,30 @@ export class Destruction {
         this._setDamage(id, rand(0.7, 0.95), _v, s.sy * 2.5, 1);
       }
     }
+    this._flushLevels();
   }
+}
+
+// the camera-hugging fade distance the shader uses (chunkUniforms.uFadeDist)
+function chunkUniformsFade() { return chunkUniforms.uFadeDist.value; }
+
+// Does the segment a..b (up to fraction tEnd) pass within r of the box? Tested against the box
+// grown by r (slab method), which is slightly generous at the corners: fine for a shader pick.
+const _bmin = new THREE.Vector3(), _bmax = new THREE.Vector3(), _d = new THREE.Vector3();
+function segmentNearBox(a, b, tEnd, box, r) {
+  _bmin.copy(box.min).subScalar(r); _bmax.copy(box.max).addScalar(r);
+  _d.subVectors(b, a);
+  let t0 = 0, t1 = tEnd;
+  for (const k of ['x', 'y', 'z']) {
+    const d = _d[k], o = a[k];
+    if (Math.abs(d) < 1e-6) { if (o < _bmin[k] || o > _bmax[k]) return false; continue; }
+    let ta = (_bmin[k] - o) / d, tb = (_bmax[k] - o) / d;
+    if (ta > tb) { const t = ta; ta = tb; tb = t; }
+    if (ta > t0) t0 = ta;
+    if (tb < t1) t1 = tb;
+    if (t0 > t1) return false;
+  }
+  return true;
 }
 
 function sameAlong(a, b) {

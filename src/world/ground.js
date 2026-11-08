@@ -70,6 +70,8 @@ function ringGround(x0, x1, z0, z1, hole) {
   return geo;
 }
 
+const _box = new THREE.Box2();
+const _at = new THREE.Vector2();
 const N = 280; // segments -> 2 m cells
 const CELL = GROUND_SIZE / N;
 const TEX = 2048;
@@ -100,7 +102,7 @@ export class Ground {
         pos[v * 3 + 2] = -GROUND_SIZE / 2 + zi * CELL;
         nor[v * 3 + 1] = 1;
         uv[v * 2] = xi / N;
-        uv[v * 2 + 1] = 1 - zi / N;
+        uv[v * 2 + 1] = zi / N; // the canvas texture isn't flipped: row 0 is the -z edge
       }
     }
     const idx = new Uint32Array(N * N * 6);
@@ -127,6 +129,14 @@ export class Ground {
     this.texture = new THREE.CanvasTexture(this.canvas);
     this.texture.colorSpace = THREE.SRGBColorSpace;
     this.texture.anisotropy = 8;
+    this.texture.flipY = false; // so a partial upload's rows land where they were painted
+    // Decals (footprints, scorch, rubble, skid marks) are painted all through a fight. Re-uploading
+    // the whole 2048x2048 canvas each time cost several ms; instead the painters grow a dirty
+    // rectangle and update() copies just that (texSubImage2D) through this second handle on the
+    // same canvas, which is never uploaded on its own.
+    this.src = new THREE.CanvasTexture(this.canvas);
+    this.src.flipY = false;
+    this.dirty = null; // [x0, y0, x1, y1] in texels
 
     this.mat = new THREE.MeshToonMaterial({ map: this.texture, gradientMap: gradientMap(3) });
     this.mesh = new THREE.Mesh(geo, this.mat);
@@ -153,6 +163,30 @@ export class Ground {
     lake.position.set(shore + 1200, 0.02, 0);
     lake.name = 'lake';
     scene.add(lake);
+  }
+
+  // grow the dirty rectangle by a disc (texels) around a point; painters call this
+  _touch(px, pz, r) {
+    const x0 = clamp(Math.floor(px - r), 0, TEX), y0 = clamp(Math.floor(pz - r), 0, TEX);
+    const x1 = clamp(Math.ceil(px + r), 0, TEX), y1 = clamp(Math.ceil(pz + r), 0, TEX);
+    if (x1 <= x0 || y1 <= y0) return;
+    const d = this.dirty;
+    if (!d) this.dirty = [x0, y0, x1, y1];
+    else { d[0] = Math.min(d[0], x0); d[1] = Math.min(d[1], y0); d[2] = Math.max(d[2], x1); d[3] = Math.max(d[3], y1); }
+    this.texDirty = true;
+  }
+
+  // upload what the painters touched since the last time
+  _upload() {
+    const d = this.dirty;
+    this.dirty = null;
+    if (!d || !G.renderer) return;
+    if (this.texture.version === 0) { this.texture.needsUpdate = true; return; } // nothing up yet: the first full upload covers it
+    const w = d[2] - d[0], h = d[3] - d[1];
+    if (w * h > TEX * TEX * 0.35) { this.texture.needsUpdate = true; return; } // a big enough area: a full upload is as cheap
+    _box.min.set(d[0], d[1]); _box.max.set(d[2], d[3]);
+    _at.set(d[0], d[1]);
+    G.renderer.copyTextureToTexture(this.src, this.texture, _box, _at);
   }
 
   // world (x,z) -> texture px
@@ -381,7 +415,7 @@ export class Ground {
       const sz = (0.3 + Math.random() * 1.2) * s;
       c.fillRect(px + Math.cos(a) * d * rx * s, pz + Math.sin(a) * d * rz * s, sz, sz * (0.5 + Math.random()));
     }
-    this.texDirty = true;
+    this._touch(px, pz, Math.max(rx, rz) * s * 2.3 + 4);
   }
 
   paintScorch(x, z, radius, cracks = 1) {
@@ -429,7 +463,7 @@ export class Ground {
       const sz = 1 + Math.random() * 3;
       c.fillRect(px + Math.cos(a) * d, pz + Math.sin(a) * d, sz, sz);
     }
-    this.texDirty = true;
+    this._touch(px, pz, r * 4.6 + 4); // the cracks wander out to ~4 radii
   }
 
   // Drag mark when someone skids across the street.
@@ -440,7 +474,7 @@ export class Ground {
     c.lineWidth = width * s;
     c.lineCap = 'round';
     c.beginPath(); c.moveTo(a, b); c.lineTo(cx, cz); c.stroke();
-    this.texDirty = true;
+    this._touch((a + cx) / 2, (b + cz) / 2, Math.hypot(cx - a, cz - b) / 2 + width * s + 2);
   }
 
   paintBlood(x, z, size) {
@@ -452,7 +486,7 @@ export class Ground {
       c.arc(px + rand(-1, 1) * size * s, pz + rand(-1, 1) * size * s, rand(0.2, 0.6) * size * s, 0, Math.PI * 2);
       c.fill();
     }
-    this.texDirty = true;
+    this._touch(px, pz, size * s * 1.7 + 2);
   }
 
   update(dt) {
@@ -464,7 +498,7 @@ export class Ground {
       this.physTimer = 0.2;
     }
     if (this.texDirty && this.texTimer <= 0) {
-      this.texture.needsUpdate = true;
+      this._upload();
       this.texDirty = false;
       this.texTimer = 0.12;
     }

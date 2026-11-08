@@ -1,17 +1,19 @@
-// Post stack: Scene (4x MSAA; the light shafts ride on its resolve) -> Bloom -> Output (tonemap+sRGB)
-// -> FX pass in display space. Only the scene pass multisamples: the later passes draw full-screen
+// Post stack: Scene (4x MSAA; the light shafts ride on its resolve) -> Bloom -> FX pass, which
+// tone-maps, converts to sRGB and then grades in display space (one full-screen pass fewer than a
+// separate OutputPass). Only the scene pass multisamples: the later passes draw full-screen
 // quads, where MSAA changes no pixel but costs a resolve per pass.
+// Dynamic resolution: setScale() shrinks every buffer in the chain while the frame runs late
+// (main.js drives it from the measured frame interval); the canvas keeps its CSS size.
 // The FX pass is where most screen-space juice lives: chromatic aberration kicks, radial
 // zoom blur toward the impact point, anime speed lines, 2-frame impact frames, flashes, and the
 // weather's colour grade (render/weather.js).
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
 import { clamp, damp } from '../core/math.js';
-import { SUN_DIR } from './renderer.js';
+import { SUN_DIR, basePixelRatio } from './renderer.js';
 
 const _sp = new THREE.Vector3();
 const _cd = new THREE.Vector3();
@@ -174,6 +176,11 @@ const FXShader = {
       } else {
         col = sampleCA(uv);
       }
+      // the scene is linear HDR up to here: tone map and go to display space (what OutputPass did)
+      #ifdef TONE_MAPPING
+      col = toneMapping(col);
+      #endif
+      col = linearToOutputTexel(vec4(col, 1.0)).rgb;
       float l = dot(col, vec3(0.299, 0.587, 0.114));
       col = mix(vec3(l), col, uSat * (1.0 - uDesat));
       col = (col - 0.5) * uContrast + 0.5;
@@ -223,6 +230,8 @@ const FXShader = {
 export class Post {
   constructor(renderer, scene, camera, quality) {
     this.renderer = renderer;
+    this.quality = quality;
+    this.scale = 1; // dynamic resolution: fraction of the quality's base pixel ratio
     const size = renderer.getDrawingBufferSize(new THREE.Vector2());
     const low = quality === 'low';
     // single-sample: the scene pass keeps its own multisampled target. Only on low does the scene
@@ -238,8 +247,8 @@ export class Post {
       this.bloom = new UnrealBloomPass(new THREE.Vector2(size.x / 2, size.y / 2), 0.32, 0.45, 0.92);
       this.composer.addPass(this.bloom);
     }
-    this.composer.addPass(new OutputPass());
     this.fx = new ShaderPass(FXShader);
+    this.fx.material.toneMapped = true; // the FX shader tone-maps the HDR scene itself (see above)
     this.composer.addPass(this.fx);
     this.u = this.fx.uniforms;
 
@@ -253,9 +262,21 @@ export class Post {
 
   onResize() {
     const w = window.innerWidth, h = window.innerHeight;
-    this.composer.setSize(w, h);
+    const pr = basePixelRatio(this.quality) * this.scale;
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(w, h);
+    this.composer.setPixelRatio(pr); // also resizes every pass
     this.u.uAspect.value = w / h;
     if (this.scenePass.raysMat) this.scenePass.raysMat.uniforms.uAspect.value = w / h;
+  }
+
+  // Render at this fraction of the base resolution (0.5..1). The canvas keeps its CSS size, so
+  // the browser upscales; the HUD is DOM and stays sharp.
+  setScale(k) {
+    k = clamp(Math.round(k * 20) / 20, 0.5, 1);
+    if (k === this.scale) return;
+    this.scale = k;
+    this.onResize();
   }
 
   // Where the sun is on screen, and how strong its shafts are from this camera: off while it's

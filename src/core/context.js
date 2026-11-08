@@ -63,6 +63,7 @@ export const URLP = {
   norecap: params.has('norecap'),     // no highlight recap after the match
   debug: params.has('debug'),
   quality: params.get('quality'),
+  scale: params.get('scale') ? Math.min(1, Math.max(0.5, parseFloat(params.get('scale')) || 1)) : 0, // pin the render scale (0.5..1); default: dynamic
   seed: next.seed ?? (params.get('seed') ? parseInt(params.get('seed'), 10) : 1337),
   skipTitle: params.has('fight') || !!next.fight,
   diff: next.diff || params.get('diff'),

@@ -202,13 +202,9 @@ class ReplayWorld {
 
   seek(T) {
     const R = this.R, D = G.debris, S = G.destruction, P = G.props;
-    const M = S.mesh.instanceMatrix.array, st = S.attrs.style.array;
-    for (const id of this.dead) {
-      if (R.deathT[id] > T) { const d = S.defs[id]; _m.compose(d.c, _q0, d.size).toArray(M, id * 16); } else hide(M, id);
-    }
-    for (const id of this.cracked) st[id * 4 + 3] = R.dmgT[id] <= T ? S.defs[id].dmg : 0;
-    S.mesh.instanceMatrix.clearUpdateRanges(); S.mesh.instanceMatrix.needsUpdate = true;
-    S.attrs.style.clearUpdateRanges(); S.attrs.style.needsUpdate = true;
+    for (const id of this.dead) S.showChunk(id, R.deathT[id] > T, false);
+    for (const id of this.cracked) S.setStyleW(id, R.dmgT[id] <= T ? S.defs[id].dmg : 0, false);
+    S.uploadAll();
     this.di = 0; while (this.di < this.dead.length && R.deathT[this.dead[this.di]] <= T) this.di++;
     this.ci = 0; while (this.ci < this.cracked.length && R.dmgT[this.cracked[this.ci]] <= T) this.ci++;
     // the ground before this match's first mound, then each mound raised by T
@@ -235,16 +231,10 @@ class ReplayWorld {
   // everything that changed in (previous T, T]
   step(T) {
     const R = this.R, S = G.destruction;
-    const IM = S.mesh.instanceMatrix, st = S.attrs.style;
-    while (this.di < this.dead.length && R.deathT[this.dead[this.di]] <= T) {
-      const id = this.dead[this.di++];
-      hide(IM.array, id);
-      IM.addUpdateRange(id * 16, 16); IM.needsUpdate = true;
-    }
+    while (this.di < this.dead.length && R.deathT[this.dead[this.di]] <= T) S.showChunk(this.dead[this.di++], false);
     while (this.ci < this.cracked.length && R.dmgT[this.cracked[this.ci]] <= T) {
       const id = this.cracked[this.ci++];
-      st.array[id * 4 + 3] = S.defs[id].dmg;
-      st.addUpdateRange(id * 4, 4); st.needsUpdate = true;
+      S.setStyleW(id, S.defs[id].dmg);
     }
     while (this.mi < this.mounds.length && this.mounds[this.mi].t <= T) {
       const p = this.mounds[this.mi++];
@@ -351,14 +341,9 @@ class ReplayWorld {
     uploadAll(P.mesh.instanceMatrix, P.mesh.instanceColor);
     G.train.cars.forEach((c, i) => { c.mesh.position.copy(L.train[i].p); c.mesh.quaternion.copy(L.train[i].q); });
     if (this.mounds.length) G.ground.restoreHeights(L.ground);
-    const M = S.mesh.instanceMatrix.array, st = S.attrs.style.array;
-    for (const id of this.dead) {
-      const d = S.defs[id];
-      if (d.alive) _m.compose(d.c, _q0, d.size).toArray(M, id * 16); else hide(M, id);
-    }
-    for (const id of this.cracked) st[id * 4 + 3] = S.defs[id].dmg;
-    S.mesh.instanceMatrix.clearUpdateRanges(); S.mesh.instanceMatrix.needsUpdate = true;
-    S.attrs.style.clearUpdateRanges(); S.attrs.style.needsUpdate = true;
+    for (const id of this.dead) S.showChunk(id, S.defs[id].alive, false);
+    for (const id of this.cracked) S.setStyleW(id, S.defs[id].dmg, false);
+    S.uploadAll();
     this.clearFx();
   }
 }

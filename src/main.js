@@ -91,12 +91,15 @@ async function boot() {
   window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
-    G.renderer.setSize(window.innerWidth, window.innerHeight);
-    G.post.onResize();
+    G.post.onResize(); // sizes the renderer and every pass at the current resolution scale
   });
+  if (URLP.scale) G.post.setScale(URLP.scale);
   // any of these may be the gesture that's allowed to start audio (iOS: only lifting the finger)
   const unlock = () => G.audio.init();
   for (const ev of ['pointerdown', 'pointerup', 'touchend', 'click', 'keydown']) window.addEventListener(ev, unlock, { passive: true });
+
+  // every shader variant compiles now, not as a hitch on the first frame that needs it
+  if (!NORENDER) G.renderer.compile(scene, camera);
 
   document.getElementById('loading').style.opacity = 0;
   setTimeout(() => document.getElementById('loading')?.remove(), 600);
@@ -108,10 +111,31 @@ async function boot() {
   installTestHooks();
 
   let last = performance.now();
-  const stats = window.__stats = { fps: 0, frames: 0, acc: 0, sim: 0, phys: 0, render: 0, bodies: 0 };
+  const stats = window.__stats = { fps: 0, frames: 0, acc: 0, sim: 0, phys: 0, render: 0, bodies: 0, scale: G.post.scale };
+  // Dynamic resolution: the frame interval is the only thing that sees GPU time. When frames run
+  // long while the CPU side is cheap (so it's the GPU), step the render scale down; when they come
+  // in comfortably under 16.7 ms for a couple of seconds, step it back up. ?scale=0.75 pins it.
+  const adapt = { ft: 1 / 60, t: 0, good: 0, scale: G.post.scale, fixed: !!URLP.scale || NORENDER, warm: 3 };
+  const adaptResolution = (realDt) => {
+    if (adapt.fixed) return;
+    if (realDt >= 0.05 || document.hidden) return; // a stalled tab, not a slow frame
+    adapt.ft += (realDt - adapt.ft) * 0.1;
+    adapt.t += realDt;
+    if (adapt.t < 0.5) return;
+    adapt.t = 0;
+    if (adapt.warm > 0) { adapt.warm -= 0.5; return; } // shaders compiling, assets decoding
+    const cpuBound = stats.sim > 11; // fewer pixels wouldn't help
+    let k = adapt.scale;
+    if (adapt.ft > 1 / 50 && !cpuBound) { k -= 0.1; adapt.good = 0; }
+    else if (adapt.ft < 1 / 58.5 && k < 1 && ++adapt.good >= 4) { k += 0.05; adapt.good = 0; }
+    else return;
+    k = Math.max(0.5, Math.min(1, k));
+    if (k !== adapt.scale) { adapt.scale = k; G.post.setScale(k); stats.scale = G.post.scale; }
+  };
   const loop = (now) => {
-    const realDt = Math.min(0.05, (now - last) / 1000);
+    const realDt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
+    adaptResolution(realDt);
     const t0 = performance.now();
     if (!window.__hold) simulate(realDt); // tests hold real time still and step it themselves
     G.weather.update(realDt, now / 1000);
@@ -155,6 +179,8 @@ function simulate(realDt) {
     chunkUniforms.uFocus.value.set(0, -1e4, 0);
     chunkUniforms.uFocus2.value.set(0, -1e4, 0);
   }
+  // only the buildings in those tunnels (or hugging the camera) draw with the discard shader
+  G.destruction.updateMaterials(G.camera.position, fighting ? chunkUniforms.uFocus.value : null, fighting ? chunkUniforms.uFocus2.value : null);
   followShadow(G.sun, fighting ? _v.copy(p.pos).lerp(b.pos, 0.4) : G.fightCam.look);
   G.audio.update(G.camera, G.time.scale, p.vel.length(), G.game.paused);
   G.hud.update(realDt);
@@ -167,6 +193,7 @@ function simulateRecap(realDt) {
   G.time.realTime += realDt;
   G.game.update(0, realDt);
   G.recap.update(realDt);
+  G.destruction.updateMaterials(G.camera.position, chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
   G.audio.update(G.camera, G.recap.speed, 0, false);
   G.hud.update(realDt);
   G.post.update(realDt, G.time.realTime);

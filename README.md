@@ -49,7 +49,9 @@ Useful URL flags:
   ~55 m apart, as the `tools/s_*.mjs` scenarios expect; `?intro` forces the opener anyway,
   `?nointro` drops it.
 - `?diff=training|sparring|brutal|king` (default: sparring).
-- `?quality=high|medium|low`, `?seed=1234` (a different procedural city).
+- `?quality=high|medium|low`, `?seed=1234` (a different procedural city). `?scale=0.75` pins the
+  render resolution (0.5–1 of the quality's base); by default it adapts to hold 60 fps (see
+  [Performance](#performance)).
 - `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
   [below](#real-nyc-madison-square--flatiron).
 - `?weather=golden|dusk|storm|night|random` (default: golden).
@@ -198,8 +200,9 @@ run-in tackle, grapple and throw, block and parry, sidestep.
 
 ## The destruction system
 
-Everything breakable (about 29k chunks, 100+ structures plus the elevated viaduct) lives in **one
-`InstancedMesh`**. A building is a grid of chunks:
+Everything breakable (about 29k chunks, 100+ structures plus the elevated viaduct) is drawn as
+**one `InstancedMesh` per building** (so each one culls against the camera and the shadow camera
+on its own). A building is a grid of chunks:
 - thin facade panels on the perimeter;
 - corner columns;
 - 3×3-cell floor slabs inside;
@@ -274,6 +277,9 @@ so settled rubble looks like rubble. Big collapse pieces trail dust on the way d
 a skirt of dust (and a bit of shake) when they hit the street.
 
 **6. Budgets and freezing**. Rapier bodies are capped at 420 / 300 / 170 (high / medium / low).
+An untouched building is a few fixed box colliders; the first hit splits those into one box per
+storey, and only the storeys that lose chunks get a collider per chunk (debris never reaches the
+inside of an intact storey), so a long match stays at ~1,500 colliders instead of tens of thousands.
 Settled pieces are **frozen into static rubble**: the body is removed but the instance stays, so the
 city accumulates real debris piles. Later shockwaves **re-wake** nearby frozen rubble through a
 spatial hash. Collapses may evict small in-flight shards (swapped for pebbles) to make room for the
@@ -427,9 +433,52 @@ Footprints, roof heights, street centrelines, parks and borough boundaries come 
   freezes based on its *own* velocity, not `isSleeping()`.
 - **Thin floor-slab slivers tunnel through the heightfield.** Fix: slabs never Voronoi-fracture, and a
   safety net pops anything under the ground back up and parks it.
-- **Collapse cost.** p50 of 13 ms of CPU simulation for a full 30-storey collapse on the 4-core
-  container used for development, which is slower than a typical desktop. The SIMD Rapier build is
-  10–30% faster than the scalar one.
+- **Collapse cost.** p50 of 4 ms of CPU simulation (p99 10 ms) for a full 30-storey collapse on the
+  4-core container used for development, which is slower than a typical desktop. The SIMD Rapier
+  build is 10–30% faster than the scalar one.
+- **Lazy collider refinement used to add ~2,000 fixed colliders per touched tower** (8 ms, then a
+  22 ms physics step while the broadphase absorbed them; 41k colliders and 40 ms steps once every
+  building had been touched). Fix: per-storey boxes, refined per chunk only where chunks went.
+- **The integrity flood fill (6 ms on a big tower) ran every frame a chunk broke**, which while
+  wading through a block is every frame. Fix: one structure per frame, each at most every 0.2 s.
+- **Every footstep re-uploaded the whole 2048² ground canvas** (16 MB, up to 8 times a second,
+  6 ms each). Fix: the painters grow a dirty rectangle and only that goes up (`texSubImage2D`).
+- **Below 40 fps the physics took two substeps**, doubling its cost exactly when the frame was
+  already late. Fix: substeps only while the step is cheap.
+
+## Performance
+
+The GPU is where the frame goes: the city is 40k instanced chunks on high, each drawn through the
+facade shader, twice (the shadow pass). What keeps that under control (`src/world/structures.js`,
+`src/world/chunkMaterial.js`, `src/render/post.js`, `src/main.js`):
+
+- **One mesh per building, and the far skyline in 400 m cells**, so three.js frustum-culls each
+  against the camera and the shadow camera; a typical shot submits a third of the chunks instead
+  of all of them, and only skyline cells near the arena cast shadows.
+- **Interior floor slabs** (over a third of all chunks) stay out of the draw until a building is
+  first touched: nothing can see them through an intact facade.
+- **Three variants of the chunk shader.** The camera dither and the see-through tunnels toward the
+  fighters need `discard`, which turns off early depth rejection for a whole draw. Only the
+  buildings that actually stand in a tunnel (or hug the camera) use that variant, picked every
+  frame; everything else uses a plain one, and buildings beyond 350 m one without the crack, fire
+  and spiderweb detail that would be sub-pixel anyway. Debris keeps the dither.
+- **Resolution.** High renders at 1.5× device pixels at most, medium 1.25×, with the drawing
+  buffer's long side capped near 2560 px (a 2× laptop or a 4K monitor was drawing 4× the pixels of
+  1080p through the post stack). On top of that **dynamic resolution** watches the frame interval:
+  when frames run long while the CPU side is cheap (so it's the GPU), the render scale steps down
+  to as low as 0.5; when frames come in under 16.7 ms for a couple of seconds it steps back up.
+  The canvas keeps its size, the HUD is DOM and stays sharp. `?scale=` pins it.
+- **Post stack.** The FX pass tone-maps and converts to sRGB itself (no separate OutputPass), and
+  the shadow map is 2048² (22 cm a texel over the fight; a stepped toon ramp doesn't show more).
+- **CPU.** Per-storey colliders, throttled integrity checks, dirty-rectangle ground uploads and
+  single physics substeps under load, all listed under
+  [Things measured](#things-measured-during-development-and-the-fixes).
+
+Measured on the dev container with `tools/shot.mjs` (headless Chromium, software GL, 960×540):
+software raster time for a mid-fight frame fell from 3.0 s to 2.2 s, the city's share of it from
+66% to 50%, and a bot-vs-bot match holds ~1,400 physics colliders where it used to climb past
+4,000 within a minute. `window.__stats` shows the live frame rate, simulation and physics
+milliseconds and the current render scale.
 
 ## The juice catalog
 
@@ -562,5 +611,6 @@ node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png
 - The robot doesn't combine from smaller vehicles at the round start; it just drops in.
 - Single-player against the bot only. Local 2P would mostly need a second input mapping and a
   shared camera.
-- GPU cost was not profiled on real hardware (the dev container renders in software). If a machine
-  struggles, use `?quality=medium` or `low`.
+- GPU cost was not profiled on real hardware (the dev container renders in software); the
+  [Performance](#performance) numbers come from a software rasterizer. If a machine struggles, use
+  `?quality=medium` or `low`, or pin a lower `?scale=`.

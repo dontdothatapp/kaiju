@@ -14,14 +14,24 @@ export const PALETTE = {
 
 export const SUN_DIR = new THREE.Vector3(-0.55, 0.62, -0.42).normalize();
 
+// The pixel ratio a quality setting renders at before dynamic resolution (render/post.js) scales
+// it. Capped: a 2x retina laptop or a 4K monitor would otherwise draw 4x the pixels of 1080p
+// through the post stack, and the drawing buffer's long side stays under ~2560 px.
+export function basePixelRatio(quality) {
+  const dpr = window.devicePixelRatio || 1;
+  let pr = quality === 'low' ? 1 : Math.min(dpr, quality === 'high' ? 1.5 : 1.25);
+  const longest = Math.max(window.innerWidth, window.innerHeight) * pr;
+  if (longest > 2560) pr *= 2560 / longest;
+  return pr;
+}
+
 export function createRenderer(canvasParent, quality) {
   const renderer = new THREE.WebGLRenderer({
     antialias: false, // MSAA happens on the composer target
     powerPreference: 'high-performance',
     stencil: false,
   });
-  const pr = quality === 'low' ? 1 : Math.min(window.devicePixelRatio, quality === 'high' ? 2 : 1.5);
-  renderer.setPixelRatio(pr);
+  renderer.setPixelRatio(basePixelRatio(quality));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.shadowMap.enabled = quality !== 'low';
   renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -42,7 +52,9 @@ export function createScene(quality) {
   const sun = new THREE.DirectionalLight(PALETTE.sun, 2.6);
   sun.position.copy(SUN_DIR).multiplyScalar(300);
   sun.castShadow = quality !== 'low';
-  const size = quality === 'high' ? 4096 : 2048;
+  // 2048 texels over the 460 m shadow frustum is 22 cm a texel: plenty under a stepped toon ramp
+  // (4096 cost four times the fill for a sharper edge nobody sees at kaiju scale)
+  const size = 2048;
   sun.shadow.mapSize.set(size, size);
   const s = 230; // kaiju scale: both fighters and the blocks around them
   Object.assign(sun.shadow.camera, { left: -s, right: s, top: s, bottom: -s, near: 1, far: 900 });

@@ -106,7 +106,9 @@ export class Physics {
   step(dt) {
     if (dt <= 0) return;
     const t0 = performance.now();
-    const steps = dt > 1 / 40 ? 2 : 1;
+    // a long frame used to get two substeps, which doubled the physics cost exactly when the frame
+    // was already late (below 40 fps the game spiralled). Substep only while the step is cheap.
+    const steps = dt > 1 / 40 && this.stepMs < 3 ? 2 : 1;
     const h = Math.min(dt / steps, 1 / 30);
     this.world.timestep = h;
     for (let i = 0; i < steps; i++) {

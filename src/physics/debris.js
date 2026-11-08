@@ -94,7 +94,7 @@ export class DebrisSystem {
     for (let i = 0; i < capacity; i++) mesh.setMatrixAt(i, ZERO_M);
     mesh.setColorAt(0, new THREE.Color(1, 1, 1));
     mesh.count = 0;
-    mesh.castShadow = true;
+    mesh.castShadow = !piece; // whole chunks and slabs shadow the street; Voronoi shards are too small to tell
     mesh.receiveShadow = true;
     mesh.frustumCulled = false;
     scene.add(mesh);

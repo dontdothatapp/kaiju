@@ -412,7 +412,7 @@ export function generateRealCity(D, scene, map, seed, quality) {
     }
   }
   items.push(...empireState(map));
-  addSkylineMesh(scene, D.material, items, rng);
+  addSkylineMesh(scene, D, items, rng);
 
   // where the fighters land at the start of a round (the title camera orbits the player's spot),
   // what the establishing shot looks at, and its location card
