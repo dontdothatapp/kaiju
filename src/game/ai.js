@@ -13,24 +13,17 @@ export const DIFFICULTY = {
 };
 DIFFICULTY.viltrumite = DIFFICULTY.king; // old URL flag
 
-// speech bubbles, by who's talking: the monster taunts like a Saturday-morning villain, the
-// robot's pilots call it like a sentai team
+// speech bubbles, by who's talking. GORRAX says nothing during a round (his roars do the talking);
+// KAISER-OH's pilots get two calls, a battle cry at the start and one when the monster goes down.
+// The bot's winning line after the match is the only other one.
 const LINES = {
   gorrax: {
-    start: ['This city is MINE!', 'Another tin soldier to crush!', 'GRAAAHH!', 'I will feast on your skyline!'],
-    playerDown: ['Stay down, scrap metal!', 'Hah! Pathetic!', 'Kneel before GORRAX!', 'Your city weeps!'],
-    hurt: ['You dare?!', 'Is that all?', 'GRRR...', 'A lucky blow!'],
-    low: ['Impossible!', 'No... NOOO!', 'I am... ETERNAL!'],
-    win: ['The city is MINE!', 'ROOOAAARRR!'],
-    roar: ['ROOOAAARRR!', 'GRAAAHH!', 'Look upon my city!', 'Run, little humans!'],
+    win: ['The city is MINE!'],
   },
   kaiser: {
-    start: ['Kaiser-Oh, ready for battle!', 'You won\'t touch this city!', 'Evacuate the area!', 'Systems online. Let\'s go!'],
-    playerDown: ['Stay down, monster!', 'Give up!', 'This city is protected!', 'Is that it?'],
-    hurt: ['Shields holding!', 'We can take it!', 'Hull breach!', 'Steady!'],
-    low: ['Power critical!', 'Reroute everything to the arms!', 'We can\'t lose here!'],
-    win: ['The city is safe!', 'Mission complete!'],
-    roar: ['Kaiser-Oh, full power!', 'We stand together!', 'Protect the city!', 'Power up!'],
+    start: ['Kaiser-Oh, ready for battle!'],
+    playerDown: ['Stay down, monster!'],
+    win: ['The city is safe!'],
   },
 };
 
@@ -59,10 +52,10 @@ export class Brain {
   setDifficulty(name) { this.d = DIFFICULTY[name] || DIFFICULTY.brutal; this.dname = name; }
 
   say(kind) {
-    if (!this.lines || this.talkCd > 0 || !G.hud) return;
+    const L = (LINES[this.f.def.name] || LINES.gorrax)[kind];
+    if (!L || !this.lines || this.talkCd > 0 || !G.hud) return;
     this.talkCd = rand(5, 9);
-    const L = LINES[this.f.def.name] || LINES.gorrax;
-    G.hud.speech(this.f, pick(L[kind] || L.start));
+    G.hud.speech(this.f, pick(L));
   }
 
   update(dt) {

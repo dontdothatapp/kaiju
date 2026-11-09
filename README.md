@@ -196,8 +196,9 @@ run-in tackle, grapple and throw, block and parry, sidestep.
 - **Pyrotechnics:** sparks burst off a body on every solid hit, as on a rubber-suit set.
 - **Kaiju explode when they lose:** a K.O.'d kaiju goes down, lies still for a moment, then blows
   up in a fireball with black smoke, sparks raining down and everything around it blown outward.
-- **Speech bubbles**: GORRAX taunts like a Saturday-morning villain ("Kneel before GORRAX!");
-  KAISER-OH's pilots call it like a sentai team ("Kaiser-Oh, full power!").
+- **Speech bubbles**: few and far between. GORRAX keeps quiet during a round (his roars say it);
+  KAISER-OH's pilots get a battle cry at the bell and "Stay down, monster!" when he floors you.
+  The bot gets a line if it wins the match.
 - **Roars and poses:** between exchanges the bot backs off and roars (windows blow out around his
   head) or strikes the sentai pose. Pick a kaiju on the title and it makes an entrance.
 - **Round opener** (`src/game/intro.js`): an aerial establishing shot of New York, then the other
@@ -502,7 +503,7 @@ skyscraper-ending haymaker stay proportional:
 | Channel | Implementation |
 |---|---|
 | Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text and flash run in real time. |
-| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh), directional kick spring, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a low-angle cinematic with letterbox for supers. |
+| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh) and a directional kick spring, both played at 15% of the tuned amplitude (`SHAKE_SCALE`) so the fight stays readable, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a low-angle cinematic with letterbox for supers. |
 | Screen | Chromatic-aberration kick, radial zoom blur toward the impact, anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
 | Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
 | Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |

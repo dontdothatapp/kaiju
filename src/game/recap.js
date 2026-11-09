@@ -15,6 +15,7 @@ import { JOINTS } from './character.js';
 import { W, SLOT, PREROLL, MOMENTS, snapShape, restoreShape, uploadAll } from './recorder.js';
 import { chunkUniforms } from '../world/chunkMaterial.js';
 import { followShadow } from '../render/renderer.js';
+import { SHAKE_SCALE } from './camera.js';
 
 const BUDGET = 26;    // seconds of film, give or take (a KO or a collapse may stretch it)
 const MAX_CLIPS = 6;
@@ -503,7 +504,7 @@ export class Recap {
     const c = G.camera, k = this.cam;
     this.trauma = Math.max(0, this.trauma - realDt * 1.5);
     const sh = this.trauma * this.trauma, t = this.realT * 22;
-    c.position.copy(k.pos).add(_v.set(noise1(t), noise1(t + 37), noise1(t + 71)).multiplyScalar(sh * 3));
+    c.position.copy(k.pos).add(_v.set(noise1(t), noise1(t + 37), noise1(t + 71)).multiplyScalar(sh * 3 * SHAKE_SCALE));
     c.lookAt(k.look);
     if (c.fov !== k.fov) { c.fov = k.fov; c.updateProjectionMatrix(); }
   }

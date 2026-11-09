@@ -11,6 +11,9 @@ const _w = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
+// The trauma shake and the directional hit kicks play at 15% of the amplitudes they were tuned at:
+// at full strength a brawl was a blur and the fight was hard to follow. The recap uses it too.
+export const SHAKE_SCALE = 0.15;
 
 export class FightCamera {
   constructor(camera) {
@@ -71,7 +74,7 @@ export class FightCamera {
     const d = this.cam.position.distanceTo(pos);
     this.addTrauma(a * clamp(1 - d / falloff, 0, 1));
   }
-  kick(dir, amount) { this.kickV.addScaledVector(dir, amount * 30); }
+  kick(dir, amount) { this.kickV.addScaledVector(dir, amount * 30 * SHAKE_SCALE); }
   fovKick(deg) { this.fovVel += deg * 14; }
   cinematic(a, b, dur) { this.cine = { a, b, t: 0, dur, angle: Math.random() < 0.5 ? 1 : -1 }; }
 
@@ -214,12 +217,12 @@ export class FightCamera {
     const s = this.trauma * this.trauma;
     if (s > 0) {
       const t = this.t * 24;
-      const maxA = 0.07;
+      const maxA = 0.07 * SHAKE_SCALE, maxP = 2.5 * SHAKE_SCALE;
       cam.rotateX(maxA * s * noise1(t));
       cam.rotateY(maxA * s * noise1(t + 37));
       cam.rotateZ(maxA * 1.4 * s * noise1(t + 71));
-      cam.position.x += 2.5 * s * noise1(t + 13);
-      cam.position.y += 2.5 * s * noise1(t + 23);
+      cam.position.x += maxP * s * noise1(t + 13);
+      cam.position.y += maxP * s * noise1(t + 23);
     }
   }
 }
