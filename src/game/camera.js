@@ -1,7 +1,8 @@
 // Lock-on fight camera at kaiju scale, with trauma shake (Eiserloh: shake = trauma^2 * noise),
 // directional kick springs, FOV punches, a wider shot while you're knocked flying and a low-angle
-// cinematic for the supers. The camera sits 90-150 m back at chest height; buildings between it
-// and the fighters dither out (world/chunkMaterial.js), so it never needs to dodge them.
+// cinematic for the supers. The camera sits 90-150 m back at chest height; whatever stands between
+// it and a fighter is cut away round him, an ink-rimmed hole (world/chunkMaterial.js), so it never
+// needs to dodge buildings.
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { clamp, damp, noise1, lerp, UP } from '../core/math.js';

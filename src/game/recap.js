@@ -13,7 +13,7 @@ import { G } from '../core/context.js';
 import { clamp, lerp, noise1, UP } from '../core/math.js';
 import { JOINTS } from './character.js';
 import { W, SLOT, PREROLL, MOMENTS, snapShape, restoreShape, uploadAll } from './recorder.js';
-import { chunkUniforms } from '../world/chunkMaterial.js';
+import { chunkUniforms, updateCutaway } from '../world/chunkMaterial.js';
 import { followShadow } from '../render/renderer.js';
 import { SHAKE_SCALE } from './camera.js';
 
@@ -491,6 +491,7 @@ export class Recap {
     chunkUniforms.uFocus.value.copy(p).setY(p.y + G.player.H * 0.2);
     chunkUniforms.uFocus2.value.copy(b).setY(b.y + G.bot.H * 0.2);
     G.fx.smoke.setFocus(chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
+    updateCutaway(G.camera, G.fighters, realDt); // cut through the city for this lens, as live
     followShadow(G.sun, this.cam.look);
     if (T1 >= g.tb - 1e-6) this._next();
   }

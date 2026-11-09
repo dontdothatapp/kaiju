@@ -132,9 +132,10 @@ that:
 - the camera sits 90–150 m back at chest height, swinging round to a three-quarter view in close
   (from straight behind, a 47 m body hides the other one), pulling up and back when they're far
   apart, in the air or you're knocked flying, and dropping to a low angle in the street for the
-  supers. It never comes closer than 70 m to your kaiju, and it never dodges buildings: anything
-  between the lens and either kaiju's chest dithers out of a body-wide tunnel
-  (`src/world/chunkMaterial.js`), and so does anything within 22 m of the lens;
+  supers. It never comes closer than 70 m to your kaiju, and it never dodges buildings: whatever
+  stands between the lens and either kaiju is cut away round him, a clean ink-rimmed pill fitted
+  to his outline on screen (`src/world/chunkMaterial.js`), and nothing within 22 m of the lens is
+  drawn at all;
 - hit sparks, shockwaves, craters, dust, the force field, the shadow frustum and sound falloff
   all scaled up to match.
 
@@ -310,11 +311,19 @@ Early playtesting showed the screen spending most of a fight buried in dust. The
 - Smoke has two layers with the same cel shading. Hit puffs, fire and black smoke stay opaque,
   inked billows; the big **dust clouds** from breaks and collapses are **see-through**.
 - Smoke clears out of a **visibility tunnel** from the camera to each fighter's chest (dust fades,
-  opaque puffs halftone-dither like the buildings), so both kaiju stay visible through any cloud.
+  opaque puffs halftone-dither), so both kaiju stay visible through any cloud.
 - Smoke clears within a few metres of the camera, and a puff that would swallow the camera is
   culled outright, so it never fills the screen.
 - Chunk-break dust is smaller and shorter-lived, and dust spawns thin out as the smoke pool fills.
   A collapse still gets its big cloud, but it settles in seconds.
+- Buildings get **cutaways** instead (`src/world/chunkMaterial.js`): each frame both kaiju are
+  projected through the real camera (the portrait view offset included) and a pill on screen is
+  fitted round each one's joints, padded by his bulk. Any building or debris fragment inside it
+  and nearer the lens than he is isn't drawn; a thin ink rim just outside the cut makes it read
+  as drawn rather than broken, and everything else stays fully opaque. A cutaway opens over 0.2 s
+  when a building first gets in the way and closes once none does; flung-out limbs widen it at
+  once and it settles back calmly. In free roam the beaten one only gets one within 260 m. The
+  shadow pass doesn't see any of it.
 
 ### Weather and light
 
@@ -470,11 +479,11 @@ facade shader, twice (the shadow pass). What keeps that under control (`src/worl
   of all of them, and only skyline cells near the arena cast shadows.
 - **Interior floor slabs** (over a third of all chunks) stay out of the draw until a building is
   first touched: nothing can see them through an intact facade.
-- **Three variants of the chunk shader.** The camera dither and the see-through tunnels toward the
+- **Three variants of the chunk shader.** The cut round the lens and the cutaways toward the
   fighters need `discard`, which turns off early depth rejection for a whole draw. Only the
-  buildings that actually stand in a tunnel (or hug the camera) use that variant, picked every
+  buildings that actually reach into a cutaway (or hug the camera) use that variant, picked every
   frame; everything else uses a plain one, and buildings beyond 350 m one without the crack, fire
-  and spiderweb detail that would be sub-pixel anyway. Debris keeps the dither.
+  and spiderweb detail that would be sub-pixel anyway. Debris always draws with the cutaways.
 - **Resolution.** High renders at 1.5× device pixels at most, medium 1.25×, with the drawing
   buffer's long side capped near 2560 px (a 2× laptop or a 4K monitor was drawing 4× the pixels of
   1080p through the post stack). On top of that **dynamic resolution** watches the frame interval:
@@ -580,7 +589,7 @@ src/world/city.js          procedural downtown (blocks, setback towers) + outer 
 src/world/realCity.js      real-map buildings: footprints -> cells, party walls, setbacks, skyline, landmarks
 src/world/maps/            real map data (tools/extract-nyc-map.mjs)
 src/world/structures.js    chunk store, impact gradient, integrity, collapse, pancake
-src/world/chunkMaterial.js facade/fracture shader (parent-space patterns, kaiju-wide see-through tunnels)
+src/world/chunkMaterial.js facade/fracture shader (parent-space patterns), the cutaways round both kaiju
 src/world/ground.js        deformable heightfield, craters, footprints, painted streets, outer ground
 src/world/                 boundary (force field), props (parked cars), train (elevated viaduct), trees
 src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, Voronoi library
