@@ -184,7 +184,9 @@ export class Destruction {
   }
 
   // ---------- per-chunk instance writes ----------
-  _range(attr, lo, count) {
+  // queue lo..lo+count of an instance attribute for upload (a whole-buffer upload someone asked for
+  // and that hasn't gone up yet stays whole)
+  _markRange(attr, lo, count) {
     if (!attr.fullPending) attr.addUpdateRange(lo, count);
     attr.needsUpdate = true;
   }
@@ -194,14 +196,14 @@ export class Destruction {
     const d = this.defs[id], s = this.structs[d.s], m = s.mesh;
     if (on) _m.compose(d.c, _q0, d.size); else _m.copy(ZERO_M);
     m.setMatrixAt(d.li, _m);
-    if (upload) this._range(m.instanceMatrix, d.li * 16, 16);
+    if (upload) this._markRange(m.instanceMatrix, d.li * 16, 16);
   }
 
   // the damage value the shader sees (style.w)
   setStyleW(id, v, upload = true) {
     const d = this.defs[id], a = this.structs[d.s].attrs.style;
     a.array[d.li * 4 + 3] = v;
-    if (upload) this._range(a, d.li * 4, 4);
+    if (upload) this._markRange(a, d.li * 4, 4);
   }
 
   // after a batch of showChunk / setStyleW writes without uploads: send every building's whole
@@ -391,7 +393,7 @@ export class Destruction {
       d.hit = [hitPos.x - d.c.x, hitPos.y - d.c.y, hitPos.z - d.c.z, R];
       d.hitF = f;
       a.hit.array.set(d.hit, d.li * 4);
-      this._range(a.hit, d.li * 4, 4);
+      this._markRange(a.hit, d.li * 4, 4);
     }
     if (v <= d.dmg) return;
     d.dmg = v;

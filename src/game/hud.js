@@ -205,7 +205,9 @@ export class HUD {
     const s = window.__stats;
     if (!s) return;
     const sc = s.scale < 1 ? ` · ${Math.round(s.scale * 100)}% res` : '';
-    this.el.fps.textContent = `${Math.round(s.fps)} FPS · sim ${s.sim.toFixed(1)} ms · draw ${s.render.toFixed(1)} ms${sc}`;
+    const ts = G.time && G.time.scale < 0.99 ? ` · time ×${G.time.scale.toFixed(2)}` : '';
+    const gpu = s.gpu > 0 ? ` · gpu ${s.gpu.toFixed(1)}` : '';
+    this.el.fps.textContent = `${Math.round(s.fps)} FPS (${(s.frame * 1000).toFixed(1)} ms) · sim ${s.sim.toFixed(1)} · phys ${s.phys.toFixed(1)}${gpu} ms${sc}${ts}`;
   }
 
   setFighters(p, b) {

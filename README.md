@@ -55,8 +55,10 @@ Useful URL flags:
 - `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
   [below](#real-nyc-madison-square--flatiron).
 - `?weather=golden|dusk|storm|night|random` (default: golden).
-- `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout: fps, simulation and draw
-  milliseconds, and the render scale when it's below 1; also a checkbox under the title's options).
+- `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout, also a checkbox under the
+  title's options: frames per second and the frame interval, simulation and physics milliseconds,
+  the GPU's own frame time, the render scale when it's below 100%, and the time scale during
+  slow motion).
 
 ## Controls
 
@@ -445,7 +447,13 @@ Footprints, roof heights, street centrelines, parks and borough boundaries come 
 - **Every footstep re-uploaded the whole 2048² ground canvas** (16 MB, up to 8 times a second,
   6 ms each). Fix: the painters grow a dirty rectangle and only that goes up (`texSubImage2D`).
 - **Below 40 fps the physics took two substeps**, doubling its cost exactly when the frame was
-  already late. Fix: substeps only while the step is cheap.
+  already late. Fix: one coarser step when the step itself is what's slow (it always covers the
+  whole frame, so debris never falls in slow motion).
+- **A smooth frame counter over a game in slow motion.** The GPU runs behind the JavaScript, and
+  when it can't keep up the browser can keep calling `requestAnimationFrame` at full rate while
+  finished frames queue up and reach the screen late. Fix: a fence after each drawn frame; with
+  three frames still unfinished the next one isn't drawn (the simulation still runs), and the fence
+  timings give the dynamic resolution a GPU frame time the frame interval alone never showed.
 
 ## Performance
 
@@ -468,7 +476,9 @@ facade shader, twice (the shadow pass). What keeps that under control (`src/worl
   1080p through the post stack). On top of that **dynamic resolution** watches the frame interval:
   when frames run long while the CPU side is cheap (so it's the GPU), the render scale steps down
   to as low as 0.5; when frames come in under 16.7 ms for a couple of seconds it steps back up.
-  The canvas keeps its size, the HUD is DOM and stays sharp. `?scale=` pins it.
+  The canvas keeps its size, the HUD is DOM and stays sharp. `?scale=` pins it. A GPU fence per
+  frame tells how far behind the GPU is: frames are skipped rather than queued when it falls three
+  behind, and its measured frame time drives the scale too.
 - **Post stack.** The FX pass tone-maps and converts to sRGB itself (no separate OutputPass), and
   the shadow map is 2048² (22 cm a texel over the fight; a stepped toon ramp doesn't show more).
 - **CPU.** Per-storey colliders, throttled integrity checks, dirty-rectangle ground uploads and

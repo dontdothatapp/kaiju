@@ -112,11 +112,18 @@ async function boot() {
   installTestHooks();
 
   let last = performance.now();
-  const stats = window.__stats = { fps: 0, frames: 0, acc: 0, sim: 0, phys: 0, render: 0, bodies: 0, scale: G.post.scale };
-  // Dynamic resolution: the frame interval is the only thing that sees GPU time. When frames run
-  // long while the CPU side is cheap (so it's the GPU), step the render scale down; when they come
-  // in comfortably under 16.7 ms for a couple of seconds, step it back up. ?scale=0.75 pins it.
-  const adapt = { ft: 1 / 60, t: 0, good: 0, scale: G.post.scale, fixed: !!URLP.scale || NORENDER, warm: 3 };
+  const stats = window.__stats = { fps: 0, frames: 0, acc: 0, frame: 1 / 60, sim: 0, phys: 0, render: 0, gpu: 0, skipped: 0, bodies: 0, scale: G.post.scale };
+  // The GPU runs behind the JavaScript: when it can't keep up, the browser may keep calling
+  // requestAnimationFrame at full rate while finished frames queue up and reach the screen late,
+  // which reads as a smooth frame counter over a game in slow motion. A fence after each frame
+  // tells how far behind the GPU is: with two frames still unfinished this frame isn't drawn
+  // (the simulation still runs, so game time stays real), and the fence timings give a GPU
+  // frame time the frame interval alone would never show.
+  const gpu = new GpuGauge(NORENDER ? null : G.renderer.getContext());
+  // Dynamic resolution: step the render scale down while the GPU is behind (frames skipped, or
+  // GPU frame time over budget) or frames simply run long with a cheap CPU side; step it back up
+  // after a couple of seconds comfortably inside 16.7 ms. ?scale=0.75 pins it.
+  const adapt = { ft: 1 / 60, t: 0, good: 0, scale: G.post.scale, fixed: !!URLP.scale || NORENDER, warm: 3, skips: 0 };
   const adaptResolution = (realDt) => {
     if (adapt.fixed) return;
     if (realDt >= 0.05 || document.hidden) return; // a stalled tab, not a slow frame
@@ -124,11 +131,14 @@ async function boot() {
     adapt.t += realDt;
     if (adapt.t < 0.5) return;
     adapt.t = 0;
+    const skips = adapt.skips; adapt.skips = 0;
     if (adapt.warm > 0) { adapt.warm -= 0.5; return; } // shaders compiling, assets decoding
     const cpuBound = stats.sim > 11; // fewer pixels wouldn't help
+    // an idle GPU on a 60 Hz display completes a frame every 16.7 ms, so these sit either side of it
+    const gpuBehind = skips > 2 || gpu.ms > 20;
     let k = adapt.scale;
-    if (adapt.ft > 1 / 50 && !cpuBound) { k -= 0.1; adapt.good = 0; }
-    else if (adapt.ft < 1 / 58.5 && k < 1 && ++adapt.good >= 4) { k += 0.05; adapt.good = 0; }
+    if (gpuBehind || (adapt.ft > 1 / 50 && !cpuBound)) { k -= 0.1; adapt.good = 0; }
+    else if (adapt.ft < 1 / 58.5 && gpu.ms < 17.5 && skips === 0 && k < 1 && ++adapt.good >= 4) { k += 0.05; adapt.good = 0; }
     else return;
     k = Math.max(0.5, Math.min(1, k));
     if (k !== adapt.scale) { adapt.scale = k; G.post.setScale(k); stats.scale = G.post.scale; }
@@ -136,14 +146,20 @@ async function boot() {
   const loop = (now) => {
     const realDt = Math.max(0, Math.min(0.05, (now - last) / 1000));
     last = now;
+    gpu.poll();
     adaptResolution(realDt);
     const t0 = performance.now();
     if (!window.__hold) simulate(realDt); // tests hold real time still and step it themselves
     G.weather.update(realDt, now / 1000);
     const t1 = performance.now();
-    if (!NORENDER) G.post.render(realDt);
+    if (!NORENDER) {
+      if (gpu.behind) { adapt.skips++; stats.skipped++; }
+      else { G.post.render(realDt); gpu.mark(); }
+    }
     const t2 = performance.now();
     stats.frames++; stats.acc += realDt;
+    stats.frame = stats.frame * 0.9 + realDt * 0.1; // the real interval between frames
+    stats.gpu = gpu.ms;
     stats.sim = stats.sim * 0.9 + (t1 - t0) * 0.1;
     stats.render = stats.render * 0.9 + (t2 - t1) * 0.1;
     stats.phys = G.physics.stepMs;
@@ -152,6 +168,47 @@ async function boot() {
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);
+}
+
+// Fences after each drawn frame: how many frames the GPU still has in hand, and how long a frame
+// takes to come out the other end (the interval between consecutive fences completing, smoothed).
+class GpuGauge {
+  constructor(gl) {
+    this.gl = gl && gl.fenceSync ? gl : null;
+    this.pending = [];
+    this.ms = 0;        // GPU frame time (0 until measured)
+    this.lastDone = 0;
+  }
+  // Chrome reports a fence a frame or two after it signals: three unfinished frames is the sign
+  // the GPU is really behind (a healthy one shows one or two here), and bounds the queue to ~50 ms.
+  get behind() { return this.pending.length >= 3; }
+  mark() {
+    const gl = this.gl;
+    if (!gl) return;
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (!sync) return;
+    this.pending.push({ sync, t: performance.now() });
+    gl.flush();
+  }
+  poll() {
+    const gl = this.gl;
+    if (!gl) return;
+    const now = performance.now();
+    while (this.pending.length) {
+      const f = this.pending[0];
+      const r = gl.clientWaitSync(f.sync, 0, 0);
+      if (r === gl.TIMEOUT_EXPIRED) break;
+      gl.deleteSync(f.sync);
+      this.pending.shift();
+      if (this.lastDone) {
+        const gap = Math.min(100, now - this.lastDone); // poll granularity: a frame at best
+        this.ms = this.ms ? this.ms * 0.85 + gap * 0.15 : gap;
+      }
+      this.lastDone = now;
+    }
+    // a long idle gap (the tab was hidden, a menu) must not read as a slow GPU
+    if (!this.pending.length && now - this.lastDone > 250) this.lastDone = 0;
+  }
 }
 
 function simulate(realDt) {

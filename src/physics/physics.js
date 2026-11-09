@@ -106,10 +106,11 @@ export class Physics {
   step(dt) {
     if (dt <= 0) return;
     const t0 = performance.now();
-    // a long frame used to get two substeps, which doubled the physics cost exactly when the frame
-    // was already late (below 40 fps the game spiralled). Substep only while the step is cheap.
-    const steps = dt > 1 / 40 && this.stepMs < 3 ? 2 : 1;
-    const h = Math.min(dt / steps, 1 / 30);
+    // Physics always covers the whole frame (debris must not fall in slow motion when the frame
+    // rate drops). A long frame gets two substeps for accuracy, unless the step itself is what is
+    // making the frame long: then one coarser step, so a late frame doesn't double its own cost.
+    const steps = dt > 1 / 40 && this.stepMs < 6 ? 2 : 1;
+    const h = dt / steps; // dt is capped at 0.05 s by the main loop
     this.world.timestep = h;
     for (let i = 0; i < steps; i++) {
       this.world.step(this.events);
