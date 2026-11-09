@@ -74,7 +74,7 @@ Useful URL flags:
 | RMB / K (hold) | Y | Heavy; hold to **charge**. Heavy right after a combo hit = **uppercut** |
 | C | LT | **STOMP**: a quake that knocks him off his feet if he's standing near you. Jump it |
 | G / B | D-pad up / R3 | **BEAM**: KAISER BEAM out of the chest emblem / ATOMIC BREATH. A / D sweep it across the skyline. The gauge under your health bar refills in 9 s |
-| E / L / MMB | B | **Grab**: shove him through the buildings, then tap again to **throw** |
+| E / L / MMB | B | **Grab**: out of reach, you run at him first. Then shove him through the buildings, and tap again to **throw** |
 | Q / F | LB | Block; tap just before a hit to **parry** |
 | R / U | RB | **Super** (full meter): KAISER-OH's **SABER FINAL STRIKE**, GORRAX's **NUCLEAR NOVA** |
 | Esc · H · M | Start · Back | Pause · controls · mute |
@@ -111,7 +111,8 @@ BLOCK and backs off for the BEAM. Nobody gets knocked out. It ends on **Fight fo
    where it lands catches fire. Sweep it with **A** / **D**.
 3. Walk (or run) straight through the base of a skyscraper: lose enough of a storey and the
    tower leans, creaks and pancakes, sometimes onto whoever's next to it.
-4. **E** to grab him, steer him through a block, release to throw him into the next one.
+4. **E** from across the street: you run at him and grab him. Steer him through a block, then tap
+   **E** again to throw him into the next one.
 5. Build the meter and press **R** next to him: KAISER-OH's sword comes down out of the sky on a
    lightning bolt; GORRAX's plates blaze before the point-blank nova.
 6. In **Training** he never fights back: wreck Midtown in peace, or win a match and go on a
@@ -189,7 +190,12 @@ run-in tackle, grapple and throw, block and parry, sidestep.
   sparks, scorch marks and craters. Blocking only takes chip damage, and about a second of
   sustained beam knocks him off his feet. Its gauge refills in 9 s.
 - **Grapple:** grab, shove him through buildings for a second (steer with the stick; the
-  robot hoists him overhead), then throw, with aim-assist toward the nearest tower.
+  robot hoists him overhead), then throw, with aim-assist toward the nearest tower. Within ~37 m
+  the grab goes straight out; further away you **run at him** first (42 m/s, straight through
+  whatever's in the way), homing on him but turning only so fast, and the grab goes out as you
+  arrive. A sidestep or a leap as you get there makes it miss (nobody can be grabbed in the air),
+  and so does running out of road (~1.8 s) or going past him: you stumble to a halt, wide open.
+  BLOCK calls the run off; a hit knocks you out of it.
 
 ### Tokusatsu touches
 

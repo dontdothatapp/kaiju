@@ -61,9 +61,13 @@ export const MOVES = {
     dmg: 12, launch: 40, dir: 'down', hitstop: 0.2, fx: 1.25, lunge: 4, range: 30,
     meter: 9, sound: 'huge', comic: 'huge', guardBreak: 0.8, impactFrame: 0.9, slowmo: [0.28, 0.3],
   },
+  // out of reach (range + lunge) it's a run at him first: runSpeed m/s (a normal run is 36),
+  // re-aiming at runTurn rad/s, for up to runTime s, until he's within runReach and the grab goes
+  // out; or a stumbling miss (runStumble s on top of the recovery) if it runs out or goes past him
   grab: {
     pose: ['grab', 'grab'], side: 'R', limb: null, startup: 0.18, active: 0.12, recovery: 0.55,
     dmg: 0, grab: true, hitstop: 0.06, fx: 0.3, lunge: 10, range: 27, meter: 0, sound: 'grab',
+    runSpeed: 42, runTurn: 2.4, runTime: 1.8, runReach: 32, runStumble: 0.3,
   },
   superRush: {
     pose: ['grab', 'hold'], side: 'L', limb: null, startup: 0.28, active: 0.16, recovery: 0.6,

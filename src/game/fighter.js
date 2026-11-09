@@ -267,7 +267,7 @@ export class Fighter {
     if (this.taunting > 0) this.taunting -= dt;
     // actions (buffered)
     if (this._consume('super') && this.meter >= 100) return this.startMove('superRush');
-    if (this._consume('grab')) return this.startMove('grab');
+    if (this._consume('grab')) return this.grabStart();
     if (this._consume('light')) return this.startMove(running && Math.hypot(this.vel.x, this.vel.z) > 20 ? 'tackle' : 'jab');
     if (this._consume('down')) return this.startMove('stomp');
     if (this._consume('rise')) return this.beamStart();
@@ -369,7 +369,7 @@ export class Fighter {
     _v.copy(this.ctrl.move).setY(0).multiplyScalar(5);
     this.vel.x += _v.x * dt * 3; this.vel.z += _v.z * dt * 3;
     if (!this.ctrl.held('block')) this.setState('free');
-    if (this._consume('grab')) this.startMove('grab');
+    if (this._consume('grab')) this.grabStart();
   }
 
   // ---------------------------------------------------------------- attacks
@@ -399,6 +399,7 @@ export class Fighter {
   _attack(dt) {
     const mv = this.move;
     const m = mv.def;
+    if (mv.run) return this._grabRun(dt, mv);
     this.moveT += dt;
     const t = this.moveT;
     const o = this.opp;
@@ -446,8 +447,9 @@ export class Fighter {
         if (this._consume('light')) return this.startMove(m.next);
         if (this.moveHit && this.buffer && this.buffer.a === 'heavy') { this.buffer = null; return this.startMove('uppercut'); }
       }
-      if (rel > m.recovery * 0.4) this.model.setAction(null, 7);
-      if (rel > m.recovery) {
+      const rec = m.recovery + (mv.stumble || 0);
+      if (rel > rec * 0.4) this.model.setAction(null, 7);
+      if (rel > rec) {
         this.move = null;
         this.setState('free');
       }
@@ -496,6 +498,8 @@ export class Fighter {
     // the tail whip only connects as the tail sweeps across the front of him
     if (m.spin) { const k = (this.moveT - m.startup) / m.active; if (k < 0.3 || k > 0.8) return; }
     if (o.invuln > 0 || o.state === 'down' || o.state === 'getup' || o.state === 'grabbed' || o.state === 'superVictim' || (o.ko && o.state !== 'launched')) return;
+    // a grab can't catch him off his feet: a leap, a launch or a sidestep's hop takes him out of its hands
+    if (m.grab && (o.state === 'jump' || o.state === 'dive' || o.state === 'launched' || o.state === 'dash' || o.pos.y - o.floorY > 6)) return;
     this.moveHit = true;
     if (m.grab || m.superGrab) return this._startGrab(m.superGrab);
     const outcome = resolveHit(this, o, this.move, toOpp); // 'hit' | 'block' | 'parry' | 'guardBreak'
@@ -738,6 +742,66 @@ export class Fighter {
   }
 
   // ---------------------------------------------------------------- grab & super
+  // GRAB: in reach (range + lunge) it goes straight out; out of reach he runs at him first
+  grabStart() {
+    const m = this.moves.grab, o = this.opp;
+    if (this.exploring || !o || this.flatDist(o) <= m.range + m.lunge) return this.startMove('grab');
+    const d = this.aimDir(_w);
+    this.move = { name: 'grab', def: m, run: true, runT: 0, yaw: Math.atan2(d.x, d.z) };
+    this.moveT = 0;
+    this.moveHit = false;
+    this.moveWhiffed = false;
+    this.setState('attack');
+    this.running = true;
+    this.model.setAction(null, 10);
+    G.audio && G.audio.whoosh(0.6, this.pos);
+    this.shout('dash', { odds: 0.5 });
+  }
+
+  // The grab run: flat out at him, wading through whatever's in the way, re-aiming at where he
+  // is now but only turning so fast. Within runReach the grab goes out (the same move: startup,
+  // active, _tryHit decides, so a sidestep or a leap at the last moment still beats it). Out of
+  // time, or gone past him: a stumbling miss. BLOCK calls it off.
+  _grabRun(dt, mv) {
+    const m = mv.def, o = this.opp;
+    if (this.ctrl.pressed('block')) {
+      this.move = null;
+      this.running = false;
+      this.model.setAction(null, 10);
+      G.audio && G.audio.skid(Math.hypot(this.vel.x, this.vel.z), this.pos);
+      return this.setState('block');
+    }
+    mv.runT += dt;
+    let d = (o && !this.exploring ? Math.atan2(o.pos.x - this.pos.x, o.pos.z - this.pos.z) : mv.yaw) - mv.yaw;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    if (!o || this.exploring || Math.abs(d) > 1.7 || mv.runT > m.runTime) return this._grabRunMiss(mv);
+    mv.yaw += clamp(d, -m.runTurn * dt, m.runTurn * dt);
+    this.vel.x = damp(this.vel.x, Math.sin(mv.yaw) * m.runSpeed, 4.5, dt);
+    this.vel.z = damp(this.vel.z, Math.cos(mv.yaw) * m.runSpeed, 4.5, dt);
+    const dist = this.flatDist(o);
+    // the arms come up as he closes in
+    if (!mv.reach && dist < m.runReach + 20) { mv.reach = true; this.model.setAction(m.pose[0], 6); }
+    if (dist <= m.runReach) {
+      mv.run = false;
+      this.running = false;
+      this.moveT = 0;
+      this.model.setAction(m.pose[0], 16);
+      (m.side === 'L' ? this.trailL : this.trailR).emitting = true;
+      G.audio && G.audio.swing(m.fx, this.pos);
+    }
+  }
+
+  // ran out of road, or straight past him: skids to a halt off balance, open to a punish
+  _grabRunMiss(mv) {
+    const m = mv.def;
+    mv.run = false; mv.started = true; mv.recover = true; mv.stumble = m.runStumble;
+    this.moveT = m.startup + m.active;
+    this.moveWhiffed = true;
+    this.running = false;
+    this.model.setAction('hitBody', 10);
+    G.audio && G.audio.skid(Math.hypot(this.vel.x, this.vel.z) * 2, this.pos);
+  }
+
   _startGrab(isSuper) {
     const o = this.opp;
     this.move = null;
@@ -976,6 +1040,7 @@ export class Fighter {
   cancelActions() {
     if (this.state === 'charge') G.audio && G.audio.chargeStop(this);
     if (this.state === 'beam') { this._beamEnd(); }
+    if (this.move && this.move.run) this.running = false; // knocked out of a grab run
     this.move = null;
     this.charge = 0;
     this.chargeFull = false;
@@ -1295,7 +1360,7 @@ export class Fighter {
     // base pose selection
     let base = 'guard';
     const dist = o ? this.flatDist(o) : 999;
-    if (st === 'free' && this.running) base = 'run';
+    if ((st === 'free' && this.running) || (st === 'attack' && this.move && this.move.run)) base = 'run';
     else if (st === 'free' && (this.exploring || dist > 110) && hs < 16) base = 'idle';
     else if (st === 'free' && this.taunting > 0) base = 'taunt';
     if (st === 'jump' || st === 'dash' && !this.grounded) base = 'air';
