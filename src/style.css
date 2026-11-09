@@ -58,6 +58,7 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #111; font-f
 
 #cityStats { position: absolute; right: 22px; bottom: 16px; font-size: 20px; color: #fff; -webkit-text-stroke: 1px var(--ink); text-shadow: 2px 2px 0 var(--ink); letter-spacing: 1px; }
 #cityStats b { color: var(--yellow); }
+#fps { position: absolute; left: 12px; bottom: 10px; padding: 3px 8px; font: 14px/18px ui-monospace, Menlo, Consolas, monospace; color: #fff; background: rgba(10, 10, 20, 0.55); border-radius: 4px; pointer-events: none; white-space: nowrap; z-index: 5; }
 #hint { position: absolute; left: 50%; bottom: 52px; max-width: 72vw; transform: translateX(-50%); font-size: 20px; color: #fff; -webkit-text-stroke: 1px var(--ink); text-shadow: 2px 2px 0 var(--ink); letter-spacing: 1px; text-align: center; }
 #toast { position: absolute; left: 50%; top: 21%; transform: translateX(-50%) rotate(-3deg); font-size: 40px; color: var(--yellow); -webkit-text-stroke: 2px var(--ink); text-shadow: 4px 4px 0 var(--red); opacity: 0; white-space: nowrap; }
 #toast.show { animation: toast 2.2s ease-out; }

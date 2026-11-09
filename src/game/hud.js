@@ -50,6 +50,7 @@ export class HUD {
         <div id="hint"></div>
         <div id="toast"></div>
       </div>
+      <div id="fps" class="hidden"></div>
       <div id="banner"></div>
       <div id="speech"></div>
       <div id="locCard" class="hidden"><div class="lc-title"></div><div class="lc-sub"></div></div>
@@ -71,6 +72,7 @@ export class HUD {
           <div class="t-opts">
             <label><input type="checkbox" id="optGore" checked> Blood</label>
             <label><input type="checkbox" id="optShake" checked> Screen shake</label>
+            <label><input type="checkbox" id="optFps"> FPS counter</label>
             <label>Quality <select id="optQuality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
             <label>City <select id="optMap"><option value="flatiron">Real NYC: Madison Sq</option><option value="grid">Procedural downtown</option></select></label>
             <label>Weather <select id="optWeather"><option value="random">Random</option>${Object.entries(WEATHERS).filter(([, w]) => !w.hidden).map(([k, w]) => `<option value="${k}">${w.label}</option>`).join('')}</select></label>
@@ -176,6 +178,34 @@ export class HUD {
     });
     root.querySelector('#optGore').addEventListener('change', (e) => { G.settings.gore = e.target.checked; });
     root.querySelector('#optShake').addEventListener('change', (e) => { G.settings.shake = e.target.checked ? 1 : 0.15; });
+    // the frame-rate readout: on from ?fps or a saved choice, toggled here, remembered
+    const fps = root.querySelector('#optFps');
+    this.el.fps = root.querySelector('#fps');
+    this.fpsT = 0;
+    fps.checked = G.settings.fps;
+    this.showFps(G.settings.fps);
+    fps.addEventListener('change', () => {
+      try { localStorage.setItem('megaton-fps', fps.checked ? '1' : '0'); } catch (e) { /* storage blocked */ }
+      this.showFps(fps.checked);
+    });
+  }
+
+  showFps(on) {
+    G.settings.fps = on;
+    this.el.fps.classList.toggle('hidden', !on);
+    this.fpsT = 0;
+  }
+
+  // frames per second, the frame's simulation and render CPU time, the render scale when dynamic
+  // resolution has it below 1 (main.js keeps window.__stats)
+  _fps(realDt) {
+    this.fpsT -= realDt;
+    if (this.fpsT > 0) return;
+    this.fpsT = 0.25;
+    const s = window.__stats;
+    if (!s) return;
+    const sc = s.scale < 1 ? ` · ${Math.round(s.scale * 100)}% res` : '';
+    this.el.fps.textContent = `${Math.round(s.fps)} FPS · sim ${s.sim.toFixed(1)} ms · draw ${s.render.toFixed(1)} ms${sc}`;
   }
 
   setFighters(p, b) {
@@ -374,6 +404,7 @@ export class HUD {
 
   update(realDt) {
     this.padMenu.update();
+    if (G.settings.fps) this._fps(realDt);
     // browsers start sound on a click, tap or key press but never on a pad button: say so
     const off = G.input.usingPad && !!G.audio && !!G.audio.ctx && !G.audio.live;
     if (off !== this.soundOff) this.root.querySelector('#soundHint').classList.toggle('hidden', !(this.soundOff = off));

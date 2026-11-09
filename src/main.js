@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { G, URLP, storedQuality } from './core/context.js';
+import { G, URLP, storedQuality, storedFps } from './core/context.js';
 import { TimeControl } from './core/time.js';
 import { Input } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
@@ -41,6 +41,7 @@ async function boot() {
   const quality = pickQuality();
   G.settings.quality = quality;
   if (URLP.diff) G.settings.difficulty = URLP.diff;
+  G.settings.fps = URLP.fps || storedFps();
   G.three = THREE;
   const app = document.getElementById('app');
   G.renderer = createRenderer(app, quality);

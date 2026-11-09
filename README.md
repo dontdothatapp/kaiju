@@ -55,7 +55,8 @@ Useful URL flags:
 - `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
   [below](#real-nyc-madison-square--flatiron).
 - `?weather=golden|dusk|storm|night|random` (default: golden).
-- `?tutorial`, `?norecap`, `?mute`.
+- `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout: fps, simulation and draw
+  milliseconds, and the render scale when it's below 1; also a checkbox under the title's options).
 
 ## Controls
 

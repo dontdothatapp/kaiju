@@ -25,6 +25,7 @@ export const G = {
     difficulty: 'sparring',
     playAs: 'kaiser',
     shake: 1.0,
+    fps: false,        // the frame-rate readout (title options, or ?fps); remembered in localStorage
   },
   stats: { chunksDestroyed: 0, buildingsCollapsed: 0 },
 };
@@ -44,6 +45,9 @@ export function storedQuality() {
 export function storedKaiju() {
   try { return localStorage.getItem('megaton-kaiju'); } catch (e) { return null; }
 }
+export function storedFps() {
+  try { return localStorage.getItem('megaton-fps') === '1'; } catch (e) { return false; }
+}
 export function storedMap() {
   try { return localStorage.getItem('megaton-map'); } catch (e) { return null; }
 }
@@ -61,6 +65,7 @@ export function reloadWith(opts) {
 export const URLP = {
   auto: params.has('auto'),           // bot vs bot (for testing / attract mode)
   norecap: params.has('norecap'),     // no highlight recap after the match
+  fps: params.has('fps'),             // the frame-rate readout on from the start
   debug: params.has('debug'),
   quality: params.get('quality'),
   scale: params.get('scale') ? Math.min(1, Math.max(0.5, parseFloat(params.get('scale')) || 1)) : 0, // pin the render scale (0.5..1); default: dynamic
