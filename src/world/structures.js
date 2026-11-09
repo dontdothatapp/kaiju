@@ -10,7 +10,7 @@
 //   collapse       -> creak/dust wind-up, failure travelling outward, coherent lean,
 //                     merged slabs that shatter on landing and crush what is below (pancaking)
 import * as THREE from 'three';
-import { chunkMaterials, chunkUniforms, addChunkAttributes, STYLE } from './chunkMaterial.js';
+import { chunkMaterials, chunkUniforms, cutaway, addChunkAttributes, STYLE } from './chunkMaterial.js';
 import { G } from '../core/context.js';
 import { clamp, rand, randomUnit, smoothstep } from '../core/math.js';
 
@@ -21,7 +21,6 @@ const _v2 = new THREE.Vector3();
 const _q0 = new THREE.Quaternion();
 const KIND = { WALL: 0, SLAB: 1, CORNER: 2, SOLID: 3 };
 const FAR_DIST = 350;        // beyond this a building gets the detail-less shader
-const TUNNEL_A = 26, TUNNEL_B = 20; // see-through tunnel radii (must match chunkMaterial.js)
 const INTEGRITY_EVERY = 0.2; // seconds between integrity checks of one structure
 const INTEGRITY_PER_FRAME = 1;
 const _box = new THREE.Box3();
@@ -227,21 +226,25 @@ export class Destruction {
   }
 
   // Pick each city mesh's shader for this frame: the see-through (discard) variant only where a
-  // building hugs the camera or stands in a tunnel from the camera to a fighter, the detail-less
-  // variant far away, the plain one otherwise. fA / fB: the fighters' chests (or null).
-  updateMaterials(camPos, fA, fB) {
-    const M = this.materials;
-    const fade = chunkUniformsFade();
+  // building hugs the camera or reaches into a fighter's cutaway (chunkMaterial.js updateCutaway,
+  // which runs first), the detail-less variant far away, the plain one otherwise. A building in a
+  // cutaway is also what opens it.
+  updateMaterials(camPos) {
+    const M = this.materials, fade = chunkUniforms.uFadeDist.value;
+    const fa = cutaway.frusta[0], fb = cutaway.frusta[1];
+    let ba = false, bb = false;
     for (const cm of this.cityMeshes) {
       const mesh = cm.mesh;
       if (!mesh.visible) continue;
       _box.min.copy(cm.min); _box.max.copy(cm.max);
       const dCam = _box.distanceToPoint(camPos);
-      let mat;
-      if (dCam < fade + 1 || (fA && segmentNearBox(camPos, fA, 0.9, _box, TUNNEL_A)) || (fB && segmentNearBox(camPos, fB, 0.86, _box, TUNNEL_B))) mat = M.seeThrough;
-      else mat = dCam > FAR_DIST ? M.far : M.plain;
+      const a = !!fa && fa.intersectsBox(_box), b = !!fb && fb.intersectsBox(_box);
+      if (a) ba = true;
+      if (b) bb = true;
+      const mat = dCam < fade + 1 || a || b ? M.seeThrough : dCam > FAR_DIST ? M.far : M.plain;
       if (mesh.material !== mat) mesh.material = mat;
     }
+    cutaway.blocked[0] = ba; cutaway.blocked[1] = bb;
   }
 
   // ---------- queries ----------
@@ -938,28 +941,6 @@ export class Destruction {
     }
     this._flushLevels();
   }
-}
-
-// the camera-hugging fade distance the shader uses (chunkUniforms.uFadeDist)
-function chunkUniformsFade() { return chunkUniforms.uFadeDist.value; }
-
-// Does the segment a..b (up to fraction tEnd) pass within r of the box? Tested against the box
-// grown by r (slab method), which is slightly generous at the corners: fine for a shader pick.
-const _bmin = new THREE.Vector3(), _bmax = new THREE.Vector3(), _d = new THREE.Vector3();
-function segmentNearBox(a, b, tEnd, box, r) {
-  _bmin.copy(box.min).subScalar(r); _bmax.copy(box.max).addScalar(r);
-  _d.subVectors(b, a);
-  let t0 = 0, t1 = tEnd;
-  for (const k of ['x', 'y', 'z']) {
-    const d = _d[k], o = a[k];
-    if (Math.abs(d) < 1e-6) { if (o < _bmin[k] || o > _bmax[k]) return false; continue; }
-    let ta = (_bmin[k] - o) / d, tb = (_bmax[k] - o) / d;
-    if (ta > tb) { const t = ta; ta = tb; tb = t; }
-    if (ta > t0) t0 = ta;
-    if (tb < t1) t1 = tb;
-    if (t0 > t1) return false;
-  }
-  return true;
 }
 
 function sameAlong(a, b) {
