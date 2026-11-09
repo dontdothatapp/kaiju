@@ -55,6 +55,8 @@ Useful URL flags:
 - `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
   [below](#real-nyc-madison-square--flatiron).
 - `?weather=golden|dusk|storm|night|random` (default: golden).
+- `?pace=1.25`: game speed (also the Pace option on the title: Normal, Brisk 1.25×, Fast 1.5×;
+  hitstop and slow-mo stay in real time). Everything in the fight moves faster, nothing else changes.
 - `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout, also a checkbox under the
   title's options: frames per second and the frame interval, simulation and physics milliseconds,
   the GPU's own frame time, the render scale when it's below 100%, the time scale during slow
@@ -65,7 +67,7 @@ Useful URL flags:
 | Keyboard / mouse | Gamepad | Action |
 |---|---|---|
 | W A S D | left stick | Walk toward / around him. Buildings don't stop you: you wade through them |
-| Shift (tap / hold) | RT | Tap: **sidestep** hop (i-frames). Hold while walking: **run** (31 m/s, smashing through blocks); LMB while running = **tackle** |
+| Shift (tap / hold) | RT | Tap: **sidestep** hop (i-frames). Hold while walking: **run** (36 m/s, smashing through blocks); LMB while running = **tackle** |
 | Space | A | **Leap**: KAISER-OH rocket-jumps, GORRAX heaves himself up. LMB / RMB in the air = **slam** down on him (KAISER KICK / BODY SLAM). Knocked down: tap to get up sooner |
 | LMB / J | X | Combo ×4. KAISER-OH: jab, cross, hook, **KAISER HAMMER**. GORRAX: claw, claw, bite, **TAIL WHIP** (a full spin; the tail sweeps 40 m) |
 | RMB / K (hold) | Y | Heavy; hold to **charge**. Heavy right after a combo hit = **uppercut** |

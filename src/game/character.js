@@ -589,7 +589,7 @@ function buildBeast(m) {
 export const KAIJU = {
   kaiser: {
     name: 'kaiser', display: 'KAISER-OH', rig: 'mech', scale: 24, outline: 0.07,
-    hip: 0.94, walk: 13, stride: 9.5, bob: 0.025, height: 47, radius: 9,
+    hip: 0.94, walk: 17, stride: 9.5, bob: 0.025, height: 47, radius: 9, // walk was 13 m/s
     voice: 'heir', voiceRate: 0.92, trail: 0x9fe2ff, beamColor: 0xffd23a, beamCore: 0xfffbe8,
     beamName: 'KAISER BEAM', superName: 'SABER FINAL STRIKE', jumpName: 'ROCKET JUMP', diveName: 'KAISER KICK',
     colors: {
@@ -602,7 +602,7 @@ export const KAIJU = {
   },
   gorrax: {
     name: 'gorrax', display: 'GORRAX', rig: 'beast', scale: 26, outline: 0.07,
-    hip: 0.94, walk: 12, stride: 9, bob: 0.035, height: 46, radius: 10,
+    hip: 0.94, walk: 16, stride: 9, bob: 0.035, height: 46, radius: 10, // walk was 12 m/s
     voice: 'patriarch', voiceRate: 0.62, trail: 0x7fe0ff, beamColor: 0x46c4ff, beamCore: 0xe6fbff,
     beamName: 'ATOMIC BREATH', superName: 'NUCLEAR NOVA', jumpName: 'MIGHTY LEAP', diveName: 'BODY SLAM',
     poses: BEAST_POSES,

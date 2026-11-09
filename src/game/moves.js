@@ -88,14 +88,18 @@ export function movesFor(def) {
   return out;
 }
 
+// Speeds in m/s. The first pass of these (walk 13, run 31, gravity 26, half-second ramps) was
+// tuned in a headless container that never ran in real time, and played like slow motion at
+// 60 fps: a 47 m kaiju crossing a 150 m-wide shot took eleven seconds. Brisker now; the Pace
+// option (core/time.js) scales the whole game on top of these.
 export const SPEED = {
-  run: 31,       // hold DASH while walking: crashes through buildings
-  dash: 34,      // tap DASH: a heavy hop to the side (i-frames)
+  run: 36,       // hold DASH while walking: crashes through buildings (was 31)
+  dash: 38,      // tap DASH: a heavy hop to the side (i-frames) (was 34)
   jump: 36,      // leap / rocket jump
   dive: 64,      // the slam back down on him
   shove: 15,     // grapple: walking him through buildings
   throw: 48,
-  gravity: 26,
+  gravity: 30,   // a leap is in the air 2.4 s instead of 2.8 (was 26)
   launchGravity: 20,
   superLaunch: 62,
 };

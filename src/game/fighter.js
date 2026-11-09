@@ -18,6 +18,7 @@ const SHOUTS = {
   stomp: ['attack_heavy', 0.7], uppercut: ['attack_heavy', 0.8], superRush: ['super_start', 1],
 };
 // states in which he stands on his own feet (the walk cycle runs, footfalls quake)
+const GETUP = 0.5; // seconds to get back on his feet (was 0.6; the knockdown itself was 1.25 s, now 0.95)
 const STANDING = new Set(['free', 'block', 'charge', 'attack', 'dash', 'beam', 'grabbing', 'super', 'hitstun', 'stagger', 'intro', 'landed', 'taunt']);
 
 const _v = new THREE.Vector3();
@@ -254,8 +255,9 @@ export class Fighter {
     _v.copy(c.move).setY(0);
     if (_v.lengthSq() > 1) _v.normalize();
     _v.multiplyScalar(speed);
-    // mass: they get going slowly and stop slowly
-    const k = running ? 1.8 : _v.lengthSq() > 1 ? 4 : 5;
+    // mass: they get going and stop over a few frames, not instantly (was 1.8 / 4 / 5: a half-second
+    // ramp into a run and a quarter-second one into a walk, which played as wading through syrup)
+    const k = running ? 3.2 : _v.lengthSq() > 1 ? 7 : 8;
     this.vel.x = damp(this.vel.x, _v.x, k, dt);
     this.vel.z = damp(this.vel.z, _v.z, k, dt);
     if (this.running && !running) G.audio && G.audio.skid(Math.hypot(this.vel.x, this.vel.z), this.pos);
@@ -1071,7 +1073,7 @@ export class Fighter {
       G.props && G.props.sweep(this.pos, this.vel, this.R * 1.6, 4);
     }
     if (this.ko) return;
-    if (this.stateT > 1.25 || (this.stateT > 0.5 && (this.ctrl.pressed('up') || this.ctrl.pressed('dash')))) {
+    if (this.stateT > 0.95 || (this.stateT > 0.4 && (this.ctrl.pressed('up') || this.ctrl.pressed('dash')))) {
       this.setState('getup');
       this.invuln = 0.9;
       this.model.setAction('recover', 12);
@@ -1084,7 +1086,7 @@ export class Fighter {
   // heaving himself back up out of the rubble
   _getup(dt) {
     this._friction(dt, 8);
-    if (this.stateT > 0.6) {
+    if (this.stateT > GETUP) {
       this.setState('free');
       this.invuln = Math.max(this.invuln, 0.3);
       this.model.setAction(null, 8);
@@ -1169,7 +1171,7 @@ export class Fighter {
     const gh = G.ground.heightAt(this.pos.x, this.pos.z);
     const lying = st === 'down' || ((st === 'ko') && this.stateT > 0.2);
     // getting up: the pelvis rises from the street with the body
-    const up = st === 'getup' ? 1 - (1 - clamp(this.stateT / 0.6, 0, 1)) ** 2 : 1;
+    const up = st === 'getup' ? 1 - (1 - clamp(this.stateT / GETUP, 0, 1)) ** 2 : 1;
     const floor = gh + (lying ? this.S * 0.26 : this.S * 0.26 + (this.hipH - this.S * 0.26) * up);
     if (this.pos.y <= floor) {
       const vy = this.vel.y;
@@ -1258,8 +1260,8 @@ export class Fighter {
     if (locked && st !== 'super') want = Math.atan2(o.pos.x - this.pos.x, o.pos.z - this.pos.z);
     else if ((this.running || this.exploring) && hs > 3 && STANDING.has(st) && st !== 'beam') want = Math.atan2(this.vel.x, this.vel.z);
     else if (this.exploring && STANDING.has(st) && st !== 'beam' && st !== 'attack') { G.fightCam.exploreDir(_v); want = Math.atan2(_v.x, _v.z); }
-    // kaiju turn ponderously (snappier while swinging, so attacks track)
-    const rate = st === 'attack' && this.moveT < (this.move ? this.move.def.startup : 0) ? 7 : st === 'free' ? 4.5 : 3;
+    // kaiju turn with some weight (snappier while swinging, so attacks track); was 7 / 4.5 / 3
+    const rate = st === 'attack' && this.moveT < (this.move ? this.move.def.startup : 0) ? 10 : st === 'free' ? 8 : 5;
     let d = want - this.yaw;
     d = Math.atan2(Math.sin(d), Math.cos(d));
     this.yaw += d * (1 - Math.exp(-rate * k));
@@ -1277,7 +1279,7 @@ export class Fighter {
       _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -Math.PI / 2 * 0.92));
     }
     if (st === 'getup') {
-      const t = clamp(this.stateT / 0.6, 0, 1);
+      const t = clamp(this.stateT / GETUP, 0, 1);
       _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -Math.PI / 2 * 0.92 * (1 - t) * (1 - t)));
     }
     if (st === 'dive' || (st === 'attack' && this.move && this.move.name === 'diveSlam')) {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { G, URLP, storedQuality, storedFps } from './core/context.js';
+import { G, URLP, storedQuality, storedFps, storedPace } from './core/context.js';
 import { TimeControl } from './core/time.js';
 import { Input } from './core/input.js';
 import { AudioEngine } from './core/audio.js';
@@ -48,6 +48,7 @@ async function boot() {
   const { scene, camera, sun, hemi, sky, clouds } = createScene(quality);
   G.scene = scene; G.camera = camera; G.sun = sun;
   G.time = new TimeControl();
+  G.time.pace = G.settings.pace = URLP.pace || storedPace() || 1;
   G.input = new Input(G.renderer.domElement);
   G.audio = new AudioEngine();
   G.audio.prepare(); // suspended until the first tap, but the music downloads and decodes now
