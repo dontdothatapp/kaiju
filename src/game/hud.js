@@ -75,7 +75,7 @@ export class HUD {
             <label><input type="checkbox" id="optFps"> FPS counter</label>
             <label>Quality <select id="optQuality"><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option></select></label>
             <label>City <select id="optMap"><option value="flatiron">Real NYC: Madison Sq</option><option value="grid">Procedural downtown</option></select></label>
-            <label>Pace <select id="optPace"><option value="1">Normal</option><option value="1.25">Brisk</option><option value="1.5">Fast</option></select></label>
+            <label>Pace <select id="optPace"><option value="1.5">Normal</option><option value="2.25">Brisk</option><option value="3">Fast</option></select></label>
             <label>Weather <select id="optWeather"><option value="random">Random</option>${Object.entries(WEATHERS).filter(([, w]) => !w.hidden).map(([k, w]) => `<option value="${k}">${w.label}</option>`).join('')}</select></label>
           </div>
           <button id="fightBtn" class="t-go">FIGHT!</button>
@@ -179,9 +179,9 @@ export class HUD {
     });
     // game speed, on the spot (hitstop and slow-mo stay in real time)
     const pc = root.querySelector('#optPace');
-    pc.value = [1, 1.25, 1.5].includes(G.settings.pace) ? String(G.settings.pace) : '1';
+    pc.value = [1.5, 2.25, 3].includes(G.settings.pace) ? String(G.settings.pace) : '1.5';
     pc.addEventListener('change', () => {
-      const v = parseFloat(pc.value) || 1;
+      const v = parseFloat(pc.value) || 1.5;
       try { localStorage.setItem('megaton-pace', String(v)); } catch (e) { /* storage blocked */ }
       G.settings.pace = v;
       if (G.time) G.time.pace = v;
@@ -215,7 +215,7 @@ export class HUD {
     const s = window.__stats;
     if (!s) return;
     const sc = s.scale < 1 ? ` · ${Math.round(s.scale * 100)}% res` : '';
-    const ts = (G.time && G.time.scale < 0.99 ? ` · slow-mo ×${G.time.scale.toFixed(2)}` : '') + (G.time && G.time.pace !== 1 ? ` · pace ×${G.time.pace}` : '');
+    const ts = (G.time && G.time.scale < 0.99 ? ` · slow-mo ×${G.time.scale.toFixed(2)}` : '') + (G.time ? ` · pace ×${G.time.pace}` : '');
     const gpu = s.gpu > 0 ? ` · gpu ${s.gpu.toFixed(1)}` : '';
     // skipped: frames not drawn because the GPU still had three in hand (counts up over the session)
     const pace = s.pace === 'fence' ? (s.skipped ? ` · skipped ${s.skipped}` : '') : ` · gpu-${s.pace}`;

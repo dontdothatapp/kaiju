@@ -55,8 +55,9 @@ Useful URL flags:
 - `?map=grid`: the procedural downtown. The default is `flatiron`, real Manhattan; see
   [below](#real-nyc-madison-square--flatiron).
 - `?weather=golden|dusk|storm|night|random` (default: golden).
-- `?pace=1.25`: game speed (also the Pace option on the title: Normal, Brisk 1.25×, Fast 1.5×;
-  hitstop and slow-mo stay in real time). Everything in the fight moves faster, nothing else changes.
+- `?pace=2`: game speed over the move data's base (also the Pace option on the title: Normal 1.5×,
+  Brisk 2.25×, Fast 3×; hitstop and slow-mo stay in real time). Everything in the fight moves
+  faster, nothing else changes.
 - `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout, also a checkbox under the
   title's options: frames per second and the frame interval, simulation and physics milliseconds,
   the GPU's own frame time, the render scale when it's below 100%, the time scale during slow

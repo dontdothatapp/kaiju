@@ -109,8 +109,10 @@ export class Physics {
     // Physics always covers the whole frame (debris must not fall in slow motion when the frame
     // rate drops). A long frame gets two substeps for accuracy, unless the step itself is what is
     // making the frame long: then one coarser step, so a late frame doesn't double its own cost.
-    const steps = dt > 1 / 40 && this.stepMs < 6 ? 2 : 1;
-    const h = dt / steps; // dt is capped at 0.05 s by the main loop
+    // (game dt can reach 0.15 s: a 0.05 s real frame at the fastest Pace setting)
+    let steps = Math.min(4, Math.max(1, Math.ceil(dt / 0.025)));
+    if (this.stepMs >= 6) steps = Math.max(1, Math.ceil(steps / 2));
+    const h = dt / steps;
     this.world.timestep = h;
     for (let i = 0; i < steps; i++) {
       this.world.step(this.events);

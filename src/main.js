@@ -48,7 +48,7 @@ async function boot() {
   const { scene, camera, sun, hemi, sky, clouds } = createScene(quality);
   G.scene = scene; G.camera = camera; G.sun = sun;
   G.time = new TimeControl();
-  G.time.pace = G.settings.pace = URLP.pace || storedPace() || 1;
+  G.time.pace = G.settings.pace = URLP.pace || storedPace() || 1.5;
   G.input = new Input(G.renderer.domElement);
   G.audio = new AudioEngine();
   G.audio.prepare(); // suspended until the first tap, but the music downloads and decodes now

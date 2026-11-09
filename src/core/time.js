@@ -14,7 +14,7 @@ export class TimeControl {
     this.slowTarget = 1;
     this.slowTimer = 0;     // real seconds the slow-mo holds before easing back
     this.slowRecover = 2.5; // ease-back speed
-    this.pace = 1;          // the player's game-speed setting (title options / ?pace=); hitstop and slow-mo stay real-time
+    this.pace = 1.5;        // the player's game-speed setting over the move data's base (title options / ?pace=: 1.5 / 2.25 / 3); hitstop and slow-mo stay real-time
     this.paused = false;
   }
 

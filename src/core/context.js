@@ -26,7 +26,7 @@ export const G = {
     playAs: 'kaiser',
     shake: 1.0,
     fps: false,        // the frame-rate readout (title options, or ?fps); remembered in localStorage
-    pace: 1,           // game speed: 1 normal, 1.25 brisk, 1.5 fast (title options, or ?pace=); remembered
+    pace: 1.5,         // game speed over the move data's base: 1.5 normal, 2.25 brisk, 3 fast (title options, or ?pace=); remembered
   },
   stats: { chunksDestroyed: 0, buildingsCollapsed: 0 },
 };
@@ -47,7 +47,7 @@ export function storedKaiju() {
   try { return localStorage.getItem('megaton-kaiju'); } catch (e) { return null; }
 }
 export function storedPace() {
-  try { const v = parseFloat(localStorage.getItem('megaton-pace')); return v >= 0.5 && v <= 2 ? v : 0; } catch (e) { return 0; }
+  try { const v = parseFloat(localStorage.getItem('megaton-pace')); return v >= 1.5 && v <= 3 ? v : 0; } catch (e) { return 0; }
 }
 export function storedFps() {
   try { return localStorage.getItem('megaton-fps') === '1'; } catch (e) { return false; }
@@ -70,7 +70,7 @@ export const URLP = {
   auto: params.has('auto'),           // bot vs bot (for testing / attract mode)
   norecap: params.has('norecap'),     // no highlight recap after the match
   fps: params.has('fps'),             // the frame-rate readout on from the start
-  pace: (() => { const v = parseFloat(params.get('pace')); return v >= 0.5 && v <= 2 ? v : 0; })(), // game speed multiplier
+  pace: (() => { const v = parseFloat(params.get('pace')); return v >= 0.5 && v <= 4 ? v : 0; })(), // game speed multiplier (default 1.5)
   nopace: params.has('nopace'),       // no GPU fences / frame pacing (main.js GpuGauge), for comparison
   debug: params.has('debug'),
   quality: params.get('quality'),
