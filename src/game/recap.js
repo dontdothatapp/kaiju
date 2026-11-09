@@ -20,7 +20,7 @@ import { SHAKE_SCALE } from './camera.js';
 const BUDGET = 26;    // seconds of film, give or take (a KO or a collapse may stretch it)
 const MAX_CLIPS = 6;
 // slow motion at each kind of moment (playback speed at the peak)
-const SLOW = { ko: 0.16, super: 0.2, skydive: 0.22, throw: 0.3, launch: 0.32, smash: 0.42, slam: 0.36, collapse: 0.62, train: 0.36 };
+const SLOW = { ko: 0.16, super: 0.2, clash: 0.3, skydive: 0.22, throw: 0.3, launch: 0.32, smash: 0.42, slam: 0.36, collapse: 0.62, train: 0.36 };
 const AFFINE = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
 
 const _m = new THREE.Matrix4();
@@ -139,6 +139,7 @@ function caption(clip) {
     ko: b.final ? 'THE FINAL BLOW' : 'K.O.',
     skydive: 'FROM ABOVE',
     super: 'SUPER',
+    clash: 'BEAM CLASH',
     train: 'THE TRAIN!',
     throw: 'HURLED ACROSS TOWN',
     slam: 'INTO THE STREET',
@@ -179,6 +180,7 @@ class ReplayWorld {
       deb: D.shapes.map((sh) => snapShape(sh)),
       cars: { m: P.mesh.instanceMatrix.array.slice(), c: P.mesh.instanceColor.array.slice() },
       train: G.train.cars.map((c) => ({ p: c.mesh.position.clone(), q: c.mesh.quaternion.clone() })),
+      mil: G.military ? G.military.snapshot() : null,
     };
     // only chunks that broke (or cracked) during this match look any different in the past
     const t0 = R.base.t;
@@ -311,6 +313,7 @@ class ReplayWorld {
       c.mesh.position.fromArray(a.train, i * 7).lerp(_v.fromArray(b.train, i * 7), k);
       c.mesh.quaternion.slerpQuaternions(_q1.fromArray(a.train, i * 7 + 3), _q2.fromArray(b.train, i * 7 + 3), k);
     });
+    if (a.mil && G.military) G.military.pose(a.mil, b.mil || a.mil, k);
     this._flush();
   }
 
@@ -331,6 +334,7 @@ class ReplayWorld {
     fx.smoke.solid.n = 0; fx.smoke.dust.n = 0; fx.smoke.cloud.n = 0;
     for (const pool of [fx.shock.rings, fx.shock.flashes, fx.shock.stars]) for (const it of pool) { it.t = it.life; it.m.visible = false; }
     for (const it of fx.comicText.items) { it.t = it.life; it.s.visible = false; }
+    fx.beam.off(0); fx.beam.off(1);
     fx.update(0, 0, G.camera);
   }
 
@@ -341,6 +345,7 @@ class ReplayWorld {
     P.mesh.instanceMatrix.array.set(L.cars.m); P.mesh.instanceColor.array.set(L.cars.c);
     uploadAll(P.mesh.instanceMatrix, P.mesh.instanceColor);
     G.train.cars.forEach((c, i) => { c.mesh.position.copy(L.train[i].p); c.mesh.quaternion.copy(L.train[i].q); });
+    if (L.mil) G.military.pose(L.mil);
     if (this.mounds.length) G.ground.restoreHeights(L.ground);
     for (const id of this.dead) S.showChunk(id, S.defs[id].alive, false);
     for (const id of this.cracked) S.setStyleW(id, S.defs[id].dmg, false);

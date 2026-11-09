@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { CharacterModel } from './character.js';
-import { movesFor, SPEED, BEAM } from './moves.js';
+import { movesFor, SPEED, BEAM, CLASH, RAGE } from './moves.js';
 import { juiceHit, juiceSmash } from './juice.js';
 import { Trail } from '../fx/trail.js';
 import { clamp, damp, rand, chance, UP, randomUnit } from '../core/math.js';
@@ -32,6 +32,10 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
+const _c = new THREE.Color();
+
+// what a match's report card counts (game.js resets it at the start of each match)
+export const newStats = () => ({ dealt: 0, taken: 0, hits: 0, maxCombo: 0, clashes: 0, supers: 0, parries: 0, throws: 0, swatted: 0 });
 
 export class Controller {
   constructor() {
@@ -69,7 +73,7 @@ export class Fighter {
     this.hp = this.maxHp;
     this.meter = 0;
     this.beamE = 1;                // beam gauge, 0..1 (refills over BEAM.recharge)
-    this.power = opts.power ?? 1;  // damage multiplier
+    this.basePower = opts.power ?? 1; // damage multiplier (see `power`: more in a rage)
     this.state = 'free';
     this.stateT = 0;
     this.move = null;
@@ -97,16 +101,21 @@ export class Fighter {
     this.kin = G.physics.kinematicCapsule(this.H * 0.32, this.R * 0.85);
     this.taunting = 0;
     this.lastHitBy = null;
-    this.stats = { dealt: 0, hits: 0, maxCombo: 0 };
+    this.stats = newStats();
     // round openers: where he looks (overrides the lock-on), a spot to walk to, a descent to fly,
     // and how far the body is lowered into a kneel
     this.faceTo = null;
     this.goal = null;
     this.flight = null;
     this.crouch = 0;
+    this.clash = null;             // the beam clash he's locked in (shared with the other one), or null
+    this.beamLockT = 0;            // caught in the other one's beam for this much longer (a beam of his own answers it)
+    this.rage = false;             // last stand: hits harder, the beam refills faster (once a round, see takeDamage)
+    this.raged = false;
   }
 
   get opp() { return this.opponent; }
+  get power() { return this.basePower * (this.rage ? RAGE.power : 1); }
   get center() { return _u.copy(this.pos).add(_w.set(0, this.H * 0.18, 0)); }
   hurtCenter(out) { return out.copy(this.pos).add(_w.set(0, this.H * 0.18, 0)); }
   get alive() { return this.hp > 0; }
@@ -120,8 +129,10 @@ export class Fighter {
     // a beam or a charge still going from last round stops here
     if (this.state === 'beam') this._beamEnd();
     G.audio && G.audio.chargeStop(this);
+    if (this.clash) this._clashAbort();
     this.hp = this.maxHp;
     this.beamE = 1;
+    this.rage = false; this.raged = false; this.beamLockT = 0;
     this.ko = false; this.invuln = 0.5; this.charge = 0;
     this.comboTaken = 0; this.booms.length = 0;
     this.boomed = false;
@@ -182,12 +193,16 @@ export class Fighter {
       this.blockPressT += dt;
       this.comboTimer -= dt;
       if (this.comboTimer <= 0) this.comboTaken = 0;
-      if (this.state !== 'beam') this.beamE = Math.min(1, this.beamE + dt / BEAM.recharge);
+      if (this.state !== 'beam') this.beamE = Math.min(1, this.beamE + (dt / BEAM.recharge) * (this.rage ? RAGE.beam : 1));
+      this.beamLockT = Math.max(0, this.beamLockT - dt);
+      // a clash needs both of them pouring it on: anything else that happens to either ends it
+      if (this.clash && !(this.state === 'beam' && this.beamPh === 'clash' && this.opp.state === 'beam' && this.opp.beamPh === 'clash')) this._clashAbort();
       if (this.ctrl.pressed('block')) this.blockPressT = 0;
       this._buffer();
       this._think(dt);
       this._integrate(dt);
       this._booms(dt);
+      if (this.rage) this._rageFx(dt);
     }
     this._orient(dt, realDt);
     this.model.root.position.copy(this.pos);
@@ -595,6 +610,7 @@ export class Fighter {
     const r = (m.limb === 'body' ? 11 : m.limb === 'tail' ? 8 : 6) + (m.fx + (m.fxCharge || 0) * ch) * 2.5;
     const dir = this.aimDir(_u);
     for (const p of pts) {
+      G.military && G.military.hitSphere(p, r, this, _v.copy(dir).multiplyScalar(45)); // a helicopter in the way of a fist
       if (!G.destruction.structsNear(p, r).length) continue;
       const res = G.destruction.impact({ pos: p, radius: r, power: 0.7 + m.fx * 0.5, vel: _v.copy(dir).multiplyScalar(30 + m.fx * 20), dir, shatter: r * 2.4, maxChunks: 16 });
       if (res.count > 0) {
@@ -641,6 +657,7 @@ export class Fighter {
     G.props && G.props.explosion(foot, m.quake * 1.3, 18);
     G.debris.explosion(foot, m.quake * 1.2, 16, 0.8);
     if (G.trees) G.trees.knock(foot.x, foot.z, m.quake * 0.7);
+    G.military && G.military.blast(foot, m.quake * 0.8, this, true);
     const o = this.opp;
     if (!o || this.exploring) return;
     const d = this.flatDist(o);
@@ -747,6 +764,16 @@ export class Fighter {
       }
       return;
     }
+    if (this.beamPh === 'clash') {
+      // locked beam to beam: every press pushes the meeting point his way (the one who fired
+      // first runs it, see _clashUpdate)
+      const C = this.clash;
+      M.glow = 1.7;
+      if (c.pressed('light') || c.pressed('heavy') || c.pressed('rise') || c.pressed('grab') || c.pressed('super')) C.mash[this === C.a ? 0 : 1]++;
+      this.buffer = null;
+      if (this === C.a) this._clashUpdate(dt, C);
+      return;
+    }
     if (this.beamPh === 'fire') {
       this.beamT += dt;
       M.glow = 1.4;
@@ -761,7 +788,7 @@ export class Fighter {
       // the face follows the beam
       this.yaw = Math.atan2(aim.x, aim.z);
       this._fireBeam(dt);
-      if (this.beamT > BEAM.fire) this._beamEnd();
+      if (this.beamPh === 'fire' && this.beamT > BEAM.fire) this._beamEnd(); // (a clash may have taken over)
       return;
     }
     // recover
@@ -807,6 +834,7 @@ export class Fighter {
     this.beamTick -= dt;
     if (this.beamTick > 0) return;
     this.beamTick = BEAM.tick;
+    G.military && G.military.hitRay(from, aim, len, BEAM.radius, this);
     // cut through the city along the line
     let cut = 0;
     for (let s = this.R + 6; s < len && cut < 6; s += 15) {
@@ -826,6 +854,11 @@ export class Fighter {
     }
     if (!onHim) return;
     const facing = _u.subVectors(this.pos, o.pos).setY(0).normalize().dot(_v.set(Math.sin(o.yaw), 0, Math.cos(o.yaw))) > -0.2;
+    // beam meets beam: he was winding his own up (or already firing) and facing this way
+    if (o.state === 'beam' && (o.beamPh === 'windup' || o.beamPh === 'fire') && facing && this.flatDist(o) > CLASH.minDist) {
+      return this._clashStart(o, o.beamPh === 'fire' ? 0.5 : CLASH.late);
+    }
+    o.beamLockT = 0.32;
     const pushDir = _u.copy(aim).setY(0).normalize();
     if (o.state === 'block' && facing) {
       // it splashes off his guard
@@ -857,13 +890,134 @@ export class Fighter {
   }
 
   _beamEnd() {
-    if (this.beamPh !== 'fire' && this.beamPh !== 'windup') return;
+    if (this.beamPh !== 'fire' && this.beamPh !== 'windup' && this.beamPh !== 'clash') return;
     this.beamPh = 'recover';
     this.beamEndT = this.stateT;
     G.fx.beam.off(this.id);
     G.audio && G.audio.beamStop(this);
     G.audio && G.audio.chargeStop(this);
     this.model.setAction('beamW', 6);
+  }
+
+  // ---------------------------------------------------------------- beam clash
+  // Two beams meet head on and lock: a ball of light between them that each kaiju shoves at the
+  // other by mashing (any attack button). It reaches him, or time runs out with it on his side,
+  // and the winner's beam goes straight through: he's blown across town. `k` is where the beams
+  // meet, 0 at this one's mouth .. 1 at the other's; the one who fired late starts on the back foot.
+  _clashStart(o, k = 0.5) {
+    const C = { a: this, b: o, k, shown: k, t: 0, mash: [0, 0], fxT: 0, ringT: 0, point: new THREE.Vector3() };
+    for (const f of [this, o]) {
+      if (f.state !== 'beam') { f.cancelActions(); f.setState('beam'); f.beamHits = 0; f.beamTick = 0; f.beamT = 0; }
+      f.clash = C;
+      f.beamPh = 'clash';
+      f.beamE = 0;
+      f.beamLockT = 0;
+      f.buffer = null;
+      f.vel.set(0, 0, 0);
+      f.model.setAction('beamS', 20);
+      if (!f.beamAim) f.beamAim = new THREE.Vector3();
+      G.audio && G.audio.chargeStop(f);
+      G.audio && G.audio.beamStart(f);
+    }
+    const mid = this.model.mouthWorld(new THREE.Vector3()).lerp(o.model.mouthWorld(_p), 0.5);
+    G.audio && G.audio.chargeStart(this); // the rising whine of the two of them locked
+    G.fx.comic('beam', mid.clone().add(_w.set(0, 26, 0)), 1.5, 'BEAM CLASH!');
+    G.fx.shock.flash(mid, 40, 0xffffff, 0.3);
+    G.fx.shock.ring(mid, null, 110, 0xffffff, 0.6, 0.08);
+    G.time.freeze(0.12);
+    G.time.slowmo(0.4, 0.35, 3);
+    G.post.flashScreen(0.4);
+    G.post.letterboxTarget = 1;
+    G.fightCam && G.fightCam.addTrauma(0.6);
+    G.hud && G.hud.clash(C);
+    if (G.input) G.input.rumble(0.8, 0.8, 300);
+  }
+
+  _clashUpdate(dt, C) {
+    const a = C.a, b = C.b;
+    const rdt = dt / (G.time ? G.time.pace : 1); // a mashing contest runs on the players' clock, not the pace setting
+    C.t += rdt;
+    C.k = clamp(C.k + (C.mash[0] - C.mash[1]) * CLASH.push, 0, 1);
+    C.mash[0] = C.mash[1] = 0;
+    C.shown = damp(C.shown, C.k, 9, rdt);
+    const pa = a.model.mouthWorld(new THREE.Vector3()), pb = b.model.mouthWorld(new THREE.Vector3());
+    const axis = new THREE.Vector3().subVectors(pb, pa).normalize();
+    const pt = C.point.copy(pa).lerp(pb, clamp(C.shown + Math.sin(C.t * 38) * 0.008, 0.06, 0.94));
+    // they brace against it, face to face
+    a.yaw = Math.atan2(axis.x, axis.z); b.yaw = Math.atan2(-axis.x, -axis.z);
+    a.beamAim.copy(axis); b.beamAim.copy(axis).negate();
+    const strain = Math.abs(C.k - 0.5) * 2;
+    G.fx.beam.set(a.id, pa, pt, a.def.beamColor, a.def.beamCore, 6.4 + Math.sin(C.t * 47) * 0.8);
+    G.fx.beam.set(b.id, pb, pt, b.def.beamColor, b.def.beamCore, 6.4 + Math.cos(C.t * 43) * 0.8);
+    G.audio && G.audio.chargeUpdate(a, clamp(C.t / CLASH.time + strain * 0.4, 0, 1));
+    G.fightCam && G.fightCam.addTrauma(0.02 + strain * 0.02);
+    C.fxT -= rdt;
+    if (C.fxT <= 0) {
+      C.fxT = 0.06;
+      // the ball of light where they meet, spitting both colours out sideways
+      G.fx.shock.flash(pt.clone(), 17 + Math.random() * 9 + strain * 6, 0xffffff, 0.11);
+      for (const f of [a, b]) {
+        randomUnit(_v).cross(axis);
+        if (_v.lengthSq() < 0.01) _v.set(0, 1, 0);
+        G.fx.sparkCone(pt, _v.normalize(), 12, new THREE.Color(f.def.beamColor), 95, 0.55, 0.9, 0.07);
+      }
+    }
+    C.ringT -= rdt;
+    if (C.ringT <= 0) {
+      C.ringT = 0.34;
+      const gy = G.ground.heightAt(pt.x, pt.z);
+      G.fx.shock.ring(pt.clone(), axis.clone(), 62 + strain * 30, 0xffffff, 0.4, 0.09, 0.8);
+      G.fx.dustRing(_p.set(pt.x, gy, pt.z), 30, 8, 'dust', 1.1);
+      G.ground.paintScorch(pt.x, pt.z, 11, 0.5);
+      // every window for blocks around goes, and whatever is parked underneath
+      G.destruction.impact({ pos: pt, radius: 0.5, power: 0.2, shatter: 85 });
+      G.props && G.props.explosion(_p, 45, 9);
+      G.debris.explosion(_p, 45, 8, 0.5);
+      if (G.input) G.input.rumble(0.35 + strain * 0.4, 0.6, 200);
+    }
+    if (C.k >= 1 - CLASH.edge) return this._clashEnd(a, b, pt);
+    if (C.k <= CLASH.edge) return this._clashEnd(b, a, pt);
+    if (C.t >= CLASH.time) return this._clashEnd(C.k >= 0.5 ? a : b, C.k >= 0.5 ? b : a, pt);
+  }
+
+  // the winner's beam breaks through and carries the lot into him
+  _clashEnd(w, l, pt) {
+    this._clashRelease();
+    const from = w.model.mouthWorld(new THREE.Vector3()), hc = l.hurtCenter(new THREE.Vector3());
+    const dir = hc.clone().sub(from).setY(0).normalize();
+    w._beamEnd(); l._beamEnd();
+    G.fx.beam.flash(w.id, from, hc, w.def.beamColor, w.def.beamCore, 0.55);
+    G.fx.explosion(pt.clone(), 1.2, w.def.beamColor);
+    G.fx.explosion(hc, 2.1, w.def.beamColor);
+    G.recorder && G.recorder.mark('clash', { pos: hc, dir, by: w, on: l, bonus: 2 });
+    l.takeDamage(CLASH.dmg * w.power, w, false);
+    const ld = dir.clone().setY(0.4).normalize();
+    aimAtBuilding(l.pos, ld, 0.5);
+    l.launch(ld, CLASH.launch, w);
+    if (!l.ko) l.shout('hurt_heavy');
+    w.shout('charge_release', { duck: 0.25 });
+    w.meter = Math.min(100, w.meter + 12);
+    w.stats.clashes++;
+    juiceHit(hc, ld, 2.1, { hitstop: 0.26, impactFrame: true, sound: 'huge', comic: 'finish', slowmo: [0.22, 0.6], flash: 0.7, victimIsPlayer: l === G.player });
+    if (G.hud) { G.hud.flashText(w, 'CLASH WON!'); G.hud.flashText(l, 'OVERPOWERED!'); }
+  }
+
+  // both let go of the clash (the beams themselves are ended by whoever calls this)
+  _clashRelease() {
+    const C = this.clash;
+    if (!C) return;
+    C.a.clash = C.b.clash = null;
+    G.audio && G.audio.chargeStop(C.a);
+    G.post.letterboxTarget = 0;
+    G.hud && G.hud.clash(null);
+  }
+
+  // something else ended it (a KO on the clock, a new round): the beams just stop
+  _clashAbort() {
+    const C = this.clash;
+    if (!C) return;
+    this._clashRelease();
+    for (const f of [C.a, C.b]) if (f.state === 'beam' && f.beamPh === 'clash') f._beamEnd();
   }
 
   // ---------------------------------------------------------------- grab & super
@@ -944,6 +1098,7 @@ export class Fighter {
     if (!isSuper) this.shout('grab', { duck: 0.25, hold: 0.8 });
     if (isSuper) {
       this.meter = 0;
+      this.stats.supers++;
       G.post.letterboxTarget = 1;
       G.fightCam && G.fightCam.cinematic(this, o, 4.2);
       G.fx.comic('super', o.pos.clone().add(new THREE.Vector3(0, this.H * 0.6, 0)), 1.3, this.def.superName + '!');
@@ -996,6 +1151,7 @@ export class Fighter {
         juiceHit(o.hurtCenter(new THREE.Vector3()), dir, 1.2, { hitstop: 0.16, sound: 'huge', comic: 'throw', victimIsPlayer: o === G.player });
         this._friction(dt, 30);
         this.meter = Math.min(100, this.meter + 10);
+        this.stats.throws++;
       }
     } else {
       this._friction(dt, 6);
@@ -1181,6 +1337,40 @@ export class Fighter {
     }
   }
 
+  // ---------------------------------------------------------------- rage
+  // Nearly beaten, he gets his second wind (once a round): GORRAX's plates blaze and he roars,
+  // KAISER-OH goes into overdrive. See RAGE in moves.js.
+  _enrage() {
+    this.rage = this.raged = true;
+    this.meter = Math.min(100, this.meter + RAGE.meter);
+    const beast = this.def.rig === 'beast';
+    const c = this.hurtCenter(new THREE.Vector3());
+    G.fx.shock.flash(c, 30, this.def.beamColor, 0.3);
+    G.fx.shock.ring(c, null, 80, this.def.beamColor, 0.6, 0.1);
+    G.fx.shock.ring(c.clone().setY(this.floorY - this.hipH + 1.5), null, 60, 0xffffff, 0.5, 0.08, 0.7);
+    G.fx.sparkCone(c, UP, 60, new THREE.Color(this.def.beamColor), 70, 1.5, 0.8, 0.06);
+    G.fx.comic('beam', c.clone().add(_w.set(0, this.H * 0.5, 0)), 1.3, beast ? 'RAGE!' : 'OVERDRIVE!');
+    G.destruction.impact({ pos: c, radius: 0.5, power: 0.2, shatter: 60 });
+    if (beast) G.audio && G.audio.roar(c); else this.shout('charge_release', { duck: 0.25 });
+    G.fightCam && G.fightCam.addTraumaAt(c, 0.5, 500);
+    G.hud && G.hud.flashText(this, beast ? 'ENRAGED!' : 'OVERDRIVE!');
+    if (G.input && this === G.player) G.input.rumble(0.7, 0.7, 350);
+  }
+
+  // while it lasts: the plates / emblem keep burning and embers pour off him
+  _rageFx(dt) {
+    if (this.ko) return;
+    const M = this.model, t = G.time.gameTime;
+    M.glow = Math.max(M.glow, 0.5 + 0.2 * Math.sin(t * 9));
+    this.rageT = (this.rageT || 0) - dt;
+    if (this.rageT > 0) return;
+    this.rageT = 0.07;
+    const p = M.chestWorld(_p);
+    randomUnit(_v).multiplyScalar(this.R * 0.9);
+    _c.set(this.def.beamColor);
+    G.fx.sparks.spawn(p.x + _v.x, p.y + _v.y * 0.8, p.z + _v.z, _v.x * 0.4, rand(14, 30), _v.z * 0.4, 0.55, 0.05, rand(0.4, 0.8), _c, 0, 0);
+  }
+
   // ---------------------------------------------------------------- receiving
   takeDamage(d, from, env) {
     if (this.ko) return;
@@ -1189,8 +1379,10 @@ export class Fighter {
     this.hp = Math.max(st === 'tutorial' ? 1 : 0, this.hp - d);
     this.meter = Math.min(100, this.meter + d * 0.45);
     if (from && from !== this) { from.meter = Math.min(100, from.meter + d * 0.7); from.stats.dealt += d; }
+    this.stats.taken += d;
     this.model.setDamage(1 - this.hp / this.maxHp);
     G.hud && G.hud.onDamage(this, d);
+    if (!this.raged && st === 'fight' && this.hp > 0 && this.hp <= this.maxHp * RAGE.at) this._enrage();
     if (this.hp <= 0) {
       this.ko = true;
       G.game && G.game.onKO(this, from);
@@ -1240,6 +1432,11 @@ export class Fighter {
 
   _hitstun(dt) {
     this._friction(dt, 4);
+    // caught in his beam with a full gauge: fire back into it (he had the head start)
+    const o = this.opp;
+    if (this.beamLockT > 0 && this.beamE >= 1 && o && o.state === 'beam' && o.beamPh === 'fire' && !o.clash && this.flatDist(o) > CLASH.minDist && this._consume('rise')) {
+      return o._clashStart(this, CLASH.counter);
+    }
     if (this.stateT > this.stunT) { this.setState('free'); this.model.setAction(null, 10); }
   }
 
@@ -1577,6 +1774,7 @@ export function resolveHit(att, vic, mv, dirIn) {
       vic.meter = Math.min(100, vic.meter + 15);
       juiceHit(point, dir, 0.9, { hitstop: 0.14, blocked: true, sound: 'parry', comic: 'parry', slowmo: [0.3, 0.3], flash: 0.25 });
       att.shout('hurt_light', { odds: 0.6 });
+      vic.stats.parries++;
       G.hud && G.hud.flashText(vic, 'PARRY!');
       return 'parry';
     }

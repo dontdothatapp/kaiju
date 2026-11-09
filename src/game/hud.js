@@ -6,6 +6,7 @@ import { clamp, damp } from '../core/math.js';
 import { TOUCH_CONTROLS } from './touch.js';
 import { PadMenu } from './padmenu.js';
 import { WEATHERS } from '../render/weather.js';
+import { CLASH } from './moves.js';
 
 const _v = new THREE.Vector3();
 
@@ -16,7 +17,7 @@ const CONTROLS = [
   ['LMB / J', 'Combo x4 (robot: jab, cross, hook, hammer · monster: claw, claw, bite, tail whip)'],
   ['RMB / K', 'Heavy · hold to CHARGE · after a combo hit: uppercut'],
   ['C', 'STOMP: a quake that knocks him off his feet (jump it!)'],
-  ['G / B', 'BEAM: KAISER BEAM / ATOMIC BREATH · A / D sweep it (gauge refills)'],
+  ['G / B', 'BEAM: KAISER BEAM / ATOMIC BREATH · A / D sweep it · fired into his: BEAM CLASH (mash LMB!)'],
   ['E / L / MMB', 'Grab (out of reach: run at him) → shove him through buildings → throw'],
   ['Q / F', 'Block (tap right before a hit to PARRY)'],
   ['R / U', 'SUPER (full meter): SABER FINAL STRIKE / NUCLEAR NOVA'],
@@ -30,7 +31,7 @@ const padControls = (b) => [
   [b(2), 'Combo x4'],
   [b(3), 'Heavy · hold to CHARGE · after a combo hit: uppercut'],
   [b(6), 'STOMP: a quake that knocks him off his feet'],
-  [`${b(12)} / ${b(11)}`, 'BEAM · the stick sweeps it'],
+  [`${b(12)} / ${b(11)}`, `BEAM · the stick sweeps it · fired into his: BEAM CLASH (mash ${b(2)}!)`],
   [b(1), 'Grab (out of reach: run at him) → shove him through buildings → throw'],
   [b(4), 'Block (tap right before a hit to PARRY)'],
   [b(5), 'SUPER (full meter)'],
@@ -50,6 +51,8 @@ export class HUD {
         <div id="hint"></div>
         <div id="toast"></div>
       </div>
+      <div id="clash" class="hidden"><div class="cl-title">BEAM CLASH!</div><div class="cl-bar"><div class="cl-you"></div><i class="cl-spark"></i></div><div class="cl-time"><i></i></div><div class="cl-mash"></div></div>
+      <div id="grade" class="hidden"><div class="g-rank"><small>RANK</small><b></b></div><div class="g-score"></div><div class="g-best"></div></div>
       <div id="fps" class="hidden"></div>
       <div id="banner"></div>
       <div id="speech"></div>
@@ -106,6 +109,7 @@ export class HUD {
       <div id="results" class="hidden"><div class="p-box r-box">
         <div class="r-title"></div>
         <div class="r-score"></div>
+        <div class="r-card"></div>
         <div class="r-stats"></div>
         <div class="r-btns"><button id="rRecap" class="hidden">WATCH RECAP<small>the best moments · R</small></button><button id="rRematch">REMATCH<small>same wrecked city · ENTER</small></button><button id="rNewCity">NEW CITY<small>fresh skyline · N</small></button><button id="rExplore">RAMPAGE<small>stomp the wreckage · X</small></button><button id="rMenu">MAIN MENU<small>pick a difficulty</small></button></div>
       </div></div>
@@ -283,6 +287,34 @@ export class HUD {
     if (n === 5 || n === 8 || n === 12) G.audio && G.audio.sting('streak');
   }
 
+  // Beam clash (Fighter._clashStart): a tug-of-war bar, your beam's colour against his, and what
+  // to mash. null puts it away.
+  clash(C) {
+    this.clashC = C;
+    const el = this.root.querySelector('#clash');
+    el.classList.toggle('hidden', !C);
+    if (!C) return;
+    const hex = (c) => '#' + c.toString(16).padStart(6, '0');
+    el.style.setProperty('--you', hex(G.player.def.beamColor));
+    el.style.setProperty('--him', hex(G.bot.def.beamColor));
+    const watching = !!(G.game && G.game.playerBrain);
+    el.querySelector('.cl-mash').innerHTML = watching ? '' : G.input.usingPad ? `MASH <b>${G.input.btn(2)}</b>!` : G.touch ? 'MASH <b>PUNCH</b>!' : 'MASH <b>LMB</b> / <b>J</b>!';
+    el.classList.remove('in'); void el.offsetWidth; el.classList.add('in');
+  }
+
+  // The match's rank, stamped across the screen as the results come up (game.js _report).
+  gradeStamp(r) {
+    const el = this.root.querySelector('#grade');
+    el.classList.toggle('hidden', !r);
+    if (!r) return;
+    el.querySelector('.g-rank b').textContent = r.grade;
+    el.querySelector('.g-score').textContent = `${r.score.toLocaleString('en-US')} PTS`;
+    el.querySelector('.g-best').textContent = r.newBest ? 'NEW BEST!' : r.best ? `BEST ${r.best.toLocaleString('en-US')}` : '';
+    el.dataset.g = r.grade;
+    el.classList.remove('show'); void el.offsetWidth; el.classList.add('show');
+    this.gradeT = 3.4;
+  }
+
   flashText(f, text) {
     const i = this.f ? this.f.indexOf(f) : -1;
     if (i < 0) return;
@@ -359,8 +391,15 @@ export class HUD {
   }
 
   // end-of-match panel: winner, score, the damage bill, and what to do next
-  showResults({ winner, score }, handlers) {
+  showResults({ winner, score, report }, handlers) {
     const r = this.el.results;
+    const card = r.querySelector('.r-card');
+    card.classList.toggle('hidden', !report);
+    if (report) {
+      card.innerHTML = `<div class="rc-rank" data-g="${report.grade}"><small>RANK</small><b>${report.grade}</b></div>`
+        + `<div class="rc-rows"><div class="rc-pts">${report.score.toLocaleString('en-US')} <small>PTS${report.mult !== 1 ? ` · ×${report.mult} ${report.diff.toUpperCase()}` : ''}</small>${report.newBest ? '<em>NEW BEST!</em>' : report.best ? `<small> · BEST ${report.best.toLocaleString('en-US')}</small>` : ''}</div>`
+        + report.rows.map(([k, v]) => `<span>${k} <b>${v}</b></span>`).join('') + '</div>';
+    }
     const rb = r.querySelector('#rRecap');
     rb.classList.toggle('hidden', !handlers.recap);
     rb.onclick = handlers.recap ? () => { G.audio && G.audio.sting('ui'); handlers.recap(); } : null;
@@ -438,6 +477,7 @@ export class HUD {
       if (full && !bar.classList.contains('full') && i === 0) G.audio && G.audio.sting('super');
       bar.classList.toggle('full', full);
       bar.classList.toggle('low', hp < 25);
+      bar.classList.toggle('rage', !!f.rage);
       this.shakeT[i] = Math.max(0, this.shakeT[i] - realDt);
       const s = this.shakeT[i] * 22;
       bar.style.transform = s > 0.1 ? `translate(${(Math.random() - 0.5) * s}px, ${(Math.random() - 0.5) * s}px)` : '';
@@ -445,6 +485,16 @@ export class HUD {
     if (this.comboT > 0) { this.comboT -= realDt; if (this.comboT <= 0) this.el.combo.classList.remove('show'); }
     if (this.bannerT > 0) { this.bannerT -= realDt; if (this.bannerT <= 0) this.el.banner.className = ''; }
     if (this.toastT > 0) { this.toastT -= realDt; if (this.toastT <= 0) this.el.toast.classList.remove('show'); }
+    if (this.gradeT > 0) { this.gradeT -= realDt; if (this.gradeT <= 0) this.root.querySelector('#grade').classList.add('hidden'); }
+    const C = this.clashC;
+    if (C) {
+      const el = this.root.querySelector('#clash');
+      const you = clamp(C.a === G.player ? C.shown : 1 - C.shown, 0, 1) * 100;
+      el.querySelector('.cl-you').style.width = you + '%';
+      el.querySelector('.cl-spark').style.left = you + '%';
+      el.querySelector('.cl-time i').style.width = clamp(1 - C.t / CLASH.time, 0, 1) * 100 + '%';
+      el.classList.toggle('losing', you < 35);
+    }
     if (this.speechT > 0) {
       this.speechT -= realDt;
       const f = this.speaker;
@@ -460,9 +510,9 @@ export class HUD {
       } else sp.style.opacity = 0.0;
       if (this.speechT <= 0) sp.classList.remove('show');
     }
-    // property damage: ~$120k per chunk, $40M per collapse, plus every wrecked car
+    // property damage: ~$120k per chunk, $40M per collapse, plus every wrecked car and $14M per helicopter or tank
     const cars = G.props ? G.props.cars.filter((c) => c.wrecked).length : 0;
-    const dollars = G.stats.chunksDestroyed * 0.12 + G.stats.buildingsCollapsed * 40 + cars * 0.045;
+    const dollars = G.stats.chunksDestroyed * 0.12 + G.stats.buildingsCollapsed * 40 + cars * 0.045 + G.stats.military * 14;
     this.dmgShown = damp(this.dmgShown || 0, dollars, 6, realDt);
     const txt = this.dmgShown >= 1000 ? `$${(this.dmgShown / 1000).toFixed(2)}B` : `$${this.dmgShown.toFixed(1)}M`;
     this.el.stats.innerHTML = `PROPERTY DAMAGE <b>${txt}</b> · BUILDINGS DOWN <b>${G.stats.buildingsCollapsed}</b>`;

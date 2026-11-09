@@ -4,7 +4,7 @@
 // your kaiju on the title (KAISER-OH or GORRAX); the bot plays the other one.
 import * as THREE from 'three';
 import { G, URLP, reloadWith, storedKaiju } from '../core/context.js';
-import { Fighter } from './fighter.js';
+import { Fighter, newStats } from './fighter.js';
 import { KAIJU } from './character.js';
 import { Brain } from './ai.js';
 import { Intro } from './intro.js';
@@ -16,6 +16,15 @@ const ROUND_TIME = 99;
 const key = (desk, touch, pad) => (G.input.usingPad ? pad : G.touch ? touch : desk);
 const pb = (i) => `<b>${G.input.btn(i)}</b>`;
 const ACTIONS = ['light', 'heavy', 'grab', 'block', 'super', 'dash', 'up', 'down', 'rise'];
+
+// The report card (see _report): what a match scores, and the rank it earns before the
+// difficulty multiplier (so a scrappy win on BRUTAL isn't an S, but it does top a clean SPARRING score).
+const DIFF_MULT = { training: 0, sparring: 1, brutal: 1.5, king: 2 };
+const RANKS = [['S', 13000], ['A', 10500], ['B', 8500], ['C', 0]];
+const BEST_KEY = 'megaton-best';
+function loadBest() {
+  try { return JSON.parse(localStorage.getItem(BEST_KEY) || '{}') || {}; } catch (e) { return {}; }
+}
 
 const COLLAPSE_TOASTS = ['BUILDING DOWN!', 'TIMBERRR!', 'THERE GOES THE NEIGHBORHOOD', 'INSURANCE WON\'T COVER THIS', 'KAIJU DAMAGE CLAIM FILED', 'EVACUATE THE BLOCK!'];
 
@@ -100,7 +109,56 @@ export class Game {
     G.hud.setRounds(0, 0);
     G.recorder.beginMatch();
     G.weather.newMatch();
+    this._matchBegin();
     this.beginRound();
+  }
+
+  // a fresh report card: what the match is scored on from here (the city's damage so far isn't)
+  _matchBegin() {
+    this.player.stats = newStats(); this.bot.stats = newStats();
+    this.match = { fightT: 0, chunks0: G.stats.chunksDestroyed, col0: G.stats.buildingsCollapsed, hpLeft: [], timeLeft: [] };
+    this.report = null;
+    G.hud.gradeStamp(null);
+  }
+
+  // The match as a score and a rank. Winning is most of it; then how much health and clock you
+  // kept in the rounds you won, style (combos, clashes, supers, parries, throws, swatted helicopters and tanks) and mayhem
+  // (buildings down, the damage bill). The difficulty multiplies the score, not the rank.
+  _report() {
+    const s = this.player.stats, m = this.match, diff = G.settings.difficulty;
+    const mult = DIFF_MULT[diff] ?? 1;
+    if (!m || !mult) return null; // the training dummy doesn't count
+    const won = this.wins[0] >= 2, rounds = this.wins[0];
+    const avg = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+    const cols = G.stats.buildingsCollapsed - m.col0;
+    const bill = (G.stats.chunksDestroyed - m.chunks0) * 0.12 + cols * 40; // $M, as the HUD counts it
+    const raw = ((won ? 5000 : rounds * 1000)
+      + Math.round(avg(m.hpLeft) * 1500 * rounds)
+      + Math.round(avg(m.timeLeft) * 1000 * rounds)
+      + Math.min(1500, s.maxCombo * 150) + s.clashes * 500 + s.supers * 400 + s.parries * 250 + s.throws * 150 + Math.min(800, s.swatted * 80)
+      + Math.min(2000, cols * 250) + Math.min(1500, Math.round(bill * 3))) * (won ? 1 : 0.5); // losing in style is still losing
+    const grade = won ? RANKS.find(([, min]) => raw >= min)[0] : rounds ? 'D' : 'F';
+    const score = Math.round(raw * mult);
+    const all = loadBest(), best = all[diff] || 0, newBest = score > best;
+    if (newBest) {
+      all[diff] = score;
+      try { localStorage.setItem(BEST_KEY, JSON.stringify(all)); } catch (e) { /* storage blocked */ }
+    }
+    const t = Math.round(m.fightT);
+    return {
+      grade, score, mult, diff, best, newBest,
+      rows: [
+        ['TIME', `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`],
+        ['DAMAGE DEALT', Math.round(s.dealt)],
+        ['BEST COMBO', s.maxCombo],
+        ['SUPERS', s.supers],
+        ['CLASHES WON', s.clashes],
+        ['PARRIES', s.parries],
+        ['MILITARY SWATTED', s.swatted],
+        ['BUILDINGS DOWN', cols],
+        ['THE BILL', bill >= 1000 ? `$${(bill / 1000).toFixed(2)}B` : `$${bill.toFixed(0)}M`],
+      ],
+    };
   }
 
   // The tutorial: the training dummy, close quarters (like ?fight), no clock, the calm title
@@ -185,6 +243,9 @@ export class Game {
     G.hud.hint(''); // an early KO would otherwise leave the opening hint up through the results
     const winner = victim === this.player ? 1 : 0;
     this.wins[winner]++;
+    if (winner === 0 && this.match) { this.match.hpLeft.push(this.player.hp / this.player.maxHp); this.match.timeLeft.push(clamp(this.timer / ROUND_TIME, 0, 1)); }
+    // whatever he was in the middle of (a beam, a charge, a hold) stops here, sounds and all
+    if (victim.state !== 'launched') victim.cancelActions();
     const final = this.wins[winner] >= 2;
     G.recorder.mark('ko', { pos: victim.pos, by: attacker, on: victim, final, bonus: final ? 5 : 0 });
     if (this.wins[winner] >= 2) G.audio.musicFade(3); // silence before the results theme
@@ -257,6 +318,7 @@ export class Game {
     this.recapAt = 0;
     G.recorder.beginMatch();
     G.weather.newMatch();
+    this._matchBegin();
     this.beginRound();
   }
 
@@ -368,7 +430,9 @@ export class Game {
     const dist = p.flatDist(b);
     if (p.state === 'jump') this.usedJump = true;
     if (p.state === 'beam') this.usedBeam = true;
-    if (p.state === 'jump' && p.stateT > 0.2) show('dive', `${key('<b>LMB</b> / <b>RMB</b>', '<b>PUNCH</b> or <b>HEAVY</b>', `${pb(2)} / ${pb(3)}`)} in the air: ${p.def.diveName}!`, 2);
+    if (p.clash) this.usedClash = true;
+    if (b.state === 'beam' && b.beamPh === 'windup' && p.beamE >= 1 && !this.usedClash && dist > 55) show('clash', `He's charging his beam: fire yours (<b>${key('G', 'BEAM', G.input.btn(12))}</b>) into it for a <b>BEAM CLASH</b>!`, 3);
+    else if (p.state === 'jump' && p.stateT > 0.2) show('dive', `${key('<b>LMB</b> / <b>RMB</b>', '<b>PUNCH</b> or <b>HEAVY</b>', `${pb(2)} / ${pb(3)}`)} in the air: ${p.def.diveName}!`, 2);
     else if (p.state === 'down' && p.stateT > 0.3) show('getup', `Tap <b>${key('SPACE', 'JUMP', G.input.btn(0))}</b> to get up faster`, 2);
     else if (p.meter >= 100) show('super', `<b>SUPER READY</b>: get close and press <b>${key('R', 'SUPER', G.input.btn(5))}</b> for ${p.def.superName}!`, 2);
     else if (p.beamE >= 1 && dist > 70 && p.state === 'free' && !this.usedBeam) show('beam', `${p.def.beamName} is charged: press <b>${key('G', 'BEAM', G.input.btn(12))}</b>`, 2);
@@ -455,6 +519,7 @@ export class Game {
     } else if (this.state === 'fight') {
       for (const f of [p, b]) if (f.hp <= 0 && this.state === 'fight') { f.ko = true; this.onKO(f, f.lastHitBy); }
       this.timer -= dt;
+      if (this.match) this.match.fightT += dt / G.time.pace;
       G.hud.setTimer(this.timer);
       if (this.timer <= 0) {
         const pr = p.hp / p.maxHp, br = b.hp / b.maxHp;
@@ -486,6 +551,7 @@ export class Game {
           G.audio.sting('win');
           this.endMusicAt = 6.2; // the victory stinger plays out, then the results theme takes over
           this.recapAt = URLP.norecap ? 0 : 2.6; // once the banner has landed: the highlights
+          this.report = this._report();
         } else {
           this.round++;
           this.beginRound();
@@ -502,6 +568,7 @@ export class Game {
         G.hud.showResults({
           winner: `${(this.wins[0] >= 2 ? p : b).name} WINS`,
           score: `${this.wins[0]} – ${this.wins[1]}`,
+          report: this.report,
         }, {
           rematch: () => this.rematch(), newCity: () => this.newCity(), menu: () => reloadWith({}),
           recap: G.recap.available() ? () => this.playRecap() : null,
@@ -509,7 +576,7 @@ export class Game {
           back: () => this._endExplore(),
         });
         // the first time, straight into the rampage (Esc brings the panel back)
-        if (!this.toured) { this.toured = true; this.explore(); }
+        if (!this.toured) { this.toured = true; this.explore(); if (this.report) G.hud.gradeStamp(this.report); }
       }
       if (inp.pressed('confirm')) this.rematch();
       if (inp.pressed('newcity')) this.newCity();
@@ -518,6 +585,7 @@ export class Game {
     }
 
     if (this.state === 'fight' && !this.playerBrain) this._contextHints(realDt);
+    else if (this.hintClear > 0 && (this.hintClear -= realDt) <= 0) G.hud.hint(''); // bot vs bot: the opening hint still goes away
     const fighting = this.state === 'fight' || this.state === 'ko' || this.state === 'end' || this.state === 'tutorial';
     if (fighting) {
       if (this.playerBrain) this.playerBrain.update(dt); else this._playerInput();
