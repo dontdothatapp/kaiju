@@ -57,8 +57,8 @@ Useful URL flags:
 - `?weather=golden|dusk|storm|night|random` (default: golden).
 - `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout, also a checkbox under the
   title's options: frames per second and the frame interval, simulation and physics milliseconds,
-  the GPU's own frame time, the render scale when it's below 100%, and the time scale during
-  slow motion).
+  the GPU's own frame time, the render scale when it's below 100%, the time scale during slow
+  motion, and how many frames the pacing skipped). `?nopace` turns the GPU frame pacing off.
 
 ## Controls
 

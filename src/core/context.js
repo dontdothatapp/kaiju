@@ -66,6 +66,7 @@ export const URLP = {
   auto: params.has('auto'),           // bot vs bot (for testing / attract mode)
   norecap: params.has('norecap'),     // no highlight recap after the match
   fps: params.has('fps'),             // the frame-rate readout on from the start
+  nopace: params.has('nopace'),       // no GPU fences / frame pacing (main.js GpuGauge), for comparison
   debug: params.has('debug'),
   quality: params.get('quality'),
   scale: params.get('scale') ? Math.min(1, Math.max(0.5, parseFloat(params.get('scale')) || 1)) : 0, // pin the render scale (0.5..1); default: dynamic

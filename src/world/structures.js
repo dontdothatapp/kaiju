@@ -152,8 +152,9 @@ export class Destruction {
         const d = this.defs[id];
         d.li = li;
         // interior floor slabs stay out of the draw until the building is first touched: they
-        // can't be seen through an intact facade (over a third of all chunks)
-        const hidden = d.kind === KIND.SLAB && s.kind === 'building';
+        // can't be seen through an intact facade (over a third of all chunks). A slab with open
+        // air over any of its cells is a roof or a setback terrace and stays.
+        const hidden = d.kind === KIND.SLAB && s.kind === 'building' && this._slabCovered(s, d);
         if (hidden) mesh.setMatrixAt(li, ZERO_M); else mesh.setMatrixAt(li, _m.compose(d.c, _q0, d.size));
         mesh.setColorAt(li, d.color);
         attrs.style.array.set([d.style[0], d.style[1], d.style[2], 0], li * 4);
@@ -181,6 +182,16 @@ export class Destruction {
       s.intactCollider = G.physics.fixedBox(c.x, c.y, c.z, h.x, h.y, h.z);
     }
     console.log(`[city] ${this.structs.length} structures, ${n} chunks, ${this.cityMeshes.length} meshes`);
+  }
+
+  // every cell of this slab has a chunk on the storey above it (the slab tile or wall up there)
+  _slabCovered(s, d) {
+    const plane = s.nx * s.nz;
+    for (const c of d.cells) {
+      const up = c + plane;
+      if (up >= s.cells.length || s.cells[up] < 0) return false;
+    }
+    return true;
   }
 
   // ---------- per-chunk instance writes ----------
