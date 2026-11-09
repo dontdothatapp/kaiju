@@ -74,6 +74,8 @@ export class FightCamera {
   kick(dir, amount) { this.kickV.addScaledVector(dir, amount * 30); }
   fovKick(deg) { this.fovVel += deg * 14; }
   cinematic(a, b, dur) { this.cine = { a, b, t: 0, dur, angle: Math.random() < 0.5 ? 1 : -1 }; }
+  // the next lock-on frame jumps straight to its shot instead of craning over (a skipped opener)
+  cut() { this.cutNext = true; }
 
   update(realDt, dt) {
     const p = G.player, o = G.bot;
@@ -152,7 +154,7 @@ export class FightCamera {
       const glance = at ? clamp(at.t / 0.6, 0, 1) : 0;
       if (at && (at.t -= realDt) <= 0) this.attention = null;
       const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45, this.chase * 0.6);
-      this.wide = damp(this.wide, spread, spread < this.wide ? 1.6 : 1.1, realDt);
+      this.wide = this.cutNext ? spread : damp(this.wide, spread, spread < this.wide ? 1.6 : 1.1, realDt);
       const W = this.wide;
       // portrait: further back and higher, and centred (a narrow screen has no room beside him)
       // in close the camera swings round to a three-quarter view (straight behind, a 47 m body
@@ -169,8 +171,9 @@ export class FightCamera {
       desiredPos = lockPos; desiredLook = lockLook;
       // a heavy camera: it lags the fighters a touch, like a crane (less so while he's flying)
       const fast = Math.hypot(p.vel.x, p.vel.z) > 25 ? 9 : 5;
-      this.pos.lerp(desiredPos, 1 - Math.exp(-fast * realDt));
-      this.look.lerp(desiredLook, 1 - Math.exp(-8 * realDt));
+      this.pos.lerp(desiredPos, this.cutNext ? 1 : 1 - Math.exp(-fast * realDt));
+      this.look.lerp(desiredLook, this.cutNext ? 1 : 1 - Math.exp(-8 * realDt));
+      this.cutNext = false;
       // and never lets him fill the lens: knocked back toward the camera, it backs off with him
       const dx = this.pos.x - pc.x, dz = this.pos.z - pc.z, dh = Math.hypot(dx, dz), minD = 70 * (1 + 0.3 * pk);
       if (dh < minD) {

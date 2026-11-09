@@ -196,6 +196,7 @@ const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
 
 const GEO = new Map();
 const geo = (key, make) => { if (!GEO.has(key)) GEO.set(key, make()); return GEO.get(key); };
@@ -283,6 +284,7 @@ export class CharacterModel {
     for (const j of JOINTS) if (!this.J[j]) this.J[j] = this.grp(this.J.pelvis, [0, 0, 0]); // a robot has no tail
     this.cur = {};
     for (const j of JOINTS) { this.cur[j] = this.P.idle[j].clone(); this.J[j].quaternion.copy(this.cur[j]); }
+    this._guardLow = this._legLow(this.P.guard);
   }
 
   setBase(name) { this.base = name; }
@@ -290,6 +292,30 @@ export class CharacterModel {
   setAction(name, rate = 18) {
     if (name) { this.action = name; this.actionWTarget = 1; this.rate = rate; }
     else { this.actionWTarget = 0; this.rate = rate; }
+  }
+  // Pose override held at an exact weight, for scripted blends (standing up out of a kneel).
+  blend(name, w, rate = 30) { this.action = name; this.actionW = this.actionWTarget = w; this.rate = rate; }
+  // Straight into a pose, no blend (a cut: a skipped round opener).
+  snap(name) {
+    this.base = name; this.action = null; this.actionW = this.actionWTarget = 0; this.rate = 8;
+    for (const j of JOINTS) { this.cur[j].copy(this.P[name][j]); this.J[j].quaternion.copy(this.cur[j]); }
+  }
+
+  // How much higher the lowest knee or sole of the pose as blended right now sits than in the
+  // guard stance (model units; 0 for anything straighter). Kneeling, the body comes down by this
+  // much so the knee is on the street (Fighter.update).
+  legDrop() { return Math.max(0, this._legLow(this.cur) - this._guardLow); }
+  _legLow(Q) {
+    const J = this.J;
+    let low = Infinity;
+    for (const s of ['L', 'R']) {
+      const knee = _v.copy(J['kn' + s].position).applyQuaternion(Q['hip' + s]).add(J['hip' + s].position);
+      const ky = knee.y;
+      _q2.copy(Q['hip' + s]).multiply(Q['kn' + s]);
+      const ankle = knee.add(_v2.copy(J['ft' + s].position).applyQuaternion(_q2));
+      low = Math.min(low, ky - 0.14, ankle.y - 0.1); // the kneecap's and the sole's thickness
+    }
+    return low;
   }
 
   hitFlash(v = 1) { this.flash = Math.max(this.flash, v); }

@@ -137,8 +137,14 @@ export class Game {
     if (this.round === 3) G.weather.setFinal(true);
     const p = this.player, b = this.bot;
     G.recorder.cut(); // highlight clips never run across a round reset
-    this._place(p, this.spawnA, this.spawnB);
-    this._place(b, this.spawnB, this.spawnA);
+    if (URLP.intro && this.round > 1) {
+      // later rounds pick up where the last one ended: fresh health, nobody moved (the opener has
+      // the loser get up and both walk back to their corners)
+      p.refresh(); b.refresh();
+    } else {
+      this._place(p, this.spawnA, this.spawnB);
+      this._place(b, this.spawnB, this.spawnA);
+    }
     p.meter = Math.min(p.meter, 50); b.meter = Math.min(b.meter, 50);
     this.timer = ROUND_TIME;
     this.t = 0;
@@ -146,7 +152,8 @@ export class Game {
     G.fightCam.cine = null;
     G.post.desatTarget = 0;
     if (URLP.intro) {
-      // the opener (game/intro.js): establishing shot and landings, then _roundReady
+      // the opener (game/intro.js): establishing shot and entrances (later rounds: back to their
+      // corners), then _roundReady
       this.state = 'cinematic';
       this.intro.start(this.round === 1);
       return;
@@ -529,6 +536,6 @@ export class Game {
       }
     }
     const ps = Math.hypot(p.vel.x, p.vel.z);
-    if (p.state !== 'launched' && p.state !== 'dive') G.post.speedTarget = p.running ? clamp((ps - 20) / 20, 0, 0.45) : 0;
+    if (p.state !== 'launched' && p.state !== 'dive') G.post.speedTarget = p.running && this.state !== 'cinematic' ? clamp((ps - 20) / 20, 0, 0.45) : 0;
   }
 }
