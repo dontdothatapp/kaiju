@@ -365,7 +365,7 @@ export class Game {
     else if (p.state === 'down' && p.stateT > 0.3) show('getup', `Tap <b>${key('SPACE', 'JUMP', G.input.btn(0))}</b> to get up faster`, 2);
     else if (p.meter >= 100) show('super', `<b>SUPER READY</b>: get close and press <b>${key('R', 'SUPER', G.input.btn(5))}</b> for ${p.def.superName}!`, 2);
     else if (p.beamE >= 1 && dist > 70 && p.state === 'free' && !this.usedBeam) show('beam', `${p.def.beamName} is charged: press <b>${key('G', 'BEAM', G.input.btn(12))}</b>`, 2);
-    else if (p.state === 'free' && b.state === 'block' && dist < 34) show('grab', `He's blocking: <b>GRAB</b>${key(' (E)', '', ` (${G.input.btn(1)})`)} him and shove him through a building!`, 2);
+    else if (p.state === 'free' && b.state === 'block' && dist < 80) show('grab', `He's blocking: <b>GRAB</b>${key(' (E)', '', ` (${G.input.btn(1)})`)} him (out of reach, you run at him) and shove him through a building!`, 2);
     else if (p.state === 'free' && dist < 45 && b.grounded && this.timer < ROUND_TIME - 20) show('stomp', `<b>${key('C', 'STOMP', G.input.btn(6))}</b>: STOMP. The quake knocks him off his feet`, 1);
     else if (p.state === 'free' && dist > 90 && Math.hypot(p.vel.x, p.vel.z) > 5) show('run', `Hold <b>${key('SHIFT', 'DASH', G.input.btn(7))}</b> to run, straight through the buildings`, 1);
     else if (!this.usedJump && this.timer < ROUND_TIME - 30 && p.state === 'free') show('jump', `${key('<b>SPACE</b>', '<b>JUMP</b>', pb(0))} to leap, then attack to slam down on him`, 1);

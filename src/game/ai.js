@@ -42,6 +42,7 @@ export class Brain {
     this.reactT = 0;
     this.reactingTo = null;
     this.diveAt = 0;
+    this.grabCd = 2;         // seconds before he'll go for another grab (a run at you from mid range is a big commitment)
     this.talkCd = 3;
     this.lines = opts.lines !== false;
     this.wasDown = false;
@@ -61,6 +62,7 @@ export class Brain {
   update(dt) {
     const f = this.f, o = f.opp, c = f.ctrl, d = this.d;
     this.talkCd -= dt;
+    this.grabCd -= dt;
     c.move.set(0, 0, 0);
     c.vert = 0;
     if (!f.alive || !o) { for (const a of ['block', 'heavy', 'dash']) c.release(a); return; }
@@ -118,6 +120,12 @@ export class Brain {
         if (om.quake) this.defense = chance(d.dodge + 0.25) ? 'jump' : chance(d.block) ? 'block' : 'none';
         else this.defense = chance(d.block) ? 'block' : chance(d.dodge) ? 'dodge' : 'none';
         if (om.grab && this.defense === 'block') this.defense = chance(0.5) ? 'dodge' : 'none';
+        // a grab run at him: seen coming, so timed for when it gets there; step aside or (now and
+        // then) leap it
+        if (o.move.run) {
+          if (this.defense === 'dodge' && chance(0.35)) { this.defense = 'jump'; this.diveAt = rand(0.3, 0.6); }
+          this.reactT = this.reactT * 0.6 + Math.max(0, dist - om.runReach) / Math.max(20, -_p.subVectors(o.vel, f.vel).setY(0).dot(dir));
+        }
       }
     } else if (o.state === 'charge' && dist < 50 && this.reactingTo !== 'charge') {
       this.reactingTo = 'charge';
@@ -193,13 +201,15 @@ export class Brain {
       else if (dist < 34) {
         if (r < d.aggression) {
           this.plan = 'strafe';
-          if (o.state === 'block' && chance(0.5 + d.grab)) c.tap('grab');
+          if (o.state === 'block' && chance(0.5 + d.grab)) { c.tap('grab'); this.grabCd = rand(4, 7); }
           else if (o.grounded && chance(d.stomp * 0.5)) c.tap('down');
-          else if (chance(d.grab * 0.5)) c.tap('grab');
+          else if (this.grabCd <= 0 && chance(d.grab * 0.2)) { c.tap('grab'); this.grabCd = rand(4, 7); }
           else { c.tap('light'); this.comboLeft = Math.floor(rand(d.combo[0], d.combo[1] + 0.99)) - 1; }
         } else this.plan = chance(0.5) ? 'strafe' : 'retreat';
       } else {
-        if (r < d.charge * 0.6 && dist > 38) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
+        // out of reach a grab is a run at him (Fighter.grabStart): now and then, more if he's turtling
+        if (this.grabCd <= 0 && (o.state === 'free' || o.state === 'block' || o.state === 'charge') && o.grounded && chance(d.grab * (o.state === 'block' ? 1.2 : 0.16))) { c.tap('grab'); this.grabCd = rand(6, 10); }
+        else if (r < d.charge * 0.6 && dist > 38) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
         else this.plan = r < 0.3 + d.aggression * 0.6 ? 'approach' : 'strafe';
       }
       if (f.hp < f.maxHp * 0.3) this.say('low');

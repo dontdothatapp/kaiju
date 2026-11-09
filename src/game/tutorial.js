@@ -86,7 +86,7 @@ const STEPS = [
   },
   {
     title: 'GRAB', unlock: ['grab'], want: 'grab', need: 1,
-    text: () => `Get close and tap ${key('<b>E</b>', '<b>GRAB</b>', pb(1))}: you shove him through the buildings. Tap it again to throw`,
+    text: () => `Tap ${key('<b>E</b>', '<b>GRAB</b>', pb(1))}: out of reach, you run at him first. Then you shove him through the buildings. Tap it again to throw`,
     frame: (p) => (p.grab && p.grab.phase === 'throw' ? 1 : 0),
   },
   {
