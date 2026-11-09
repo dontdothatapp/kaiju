@@ -209,8 +209,15 @@ run-in tackle, grapple and throw, block and parry, sidestep.
 - **Roars and poses:** between exchanges the bot backs off and roars (windows blow out around his
   head) or strikes the sentai pose. Pick a kaiju on the title and it makes an entrance.
 - **Round opener** (`src/game/intro.js`): an aerial establishing shot of New York, then the other
-  kaiju crashes down out of the sky in front of the Flatiron, filmed from the street looking up,
-  and roars at the lens; yours drops into Madison Square Park.
+  kaiju makes his entrance in front of the Flatiron and yours in Madison Square Park, each his
+  own way. KAISER-OH flies in: a powered descent on an angle from high over the city, thrusters
+  braking all the way, a hero landing on one knee in a crater, then he stands up into his guard.
+  GORRAX comes on foot: he charges down the clearest street behind his mark (through whatever is
+  in the way), every footfall a quake, plants himself on it and roars into the lens. The last
+  shot cranes round behind you to where the fight camera picks up. Rounds 2 and 3 pick up where
+  the last one ended: the loser gets up where he went down, both walk back to their corners
+  (about 70 m apart, on open ground) facing each other, the monster roars and the robot strikes
+  its pose, and the bell goes. Any key or tap skips straight to them standing on their marks.
 
 ## The destruction system
 
@@ -638,7 +645,7 @@ node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png
   and facades but no furniture.
 - Debris doesn't collide with *intact* neighbouring buildings until those buildings take damage
   (lazy collider refinement).
-- The robot doesn't combine from smaller vehicles at the round start; it just drops in.
+- The robot doesn't combine from smaller vehicles at the round start; it just flies in.
 - Single-player against the bot only. Local 2P would mostly need a second input mapping and a
   shared camera.
 - GPU cost was not profiled on real hardware (the dev container renders in software); the

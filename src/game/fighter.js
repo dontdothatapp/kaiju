@@ -19,7 +19,11 @@ const SHOUTS = {
 };
 // states in which he stands on his own feet (the walk cycle runs, footfalls quake)
 const GETUP = 0.5; // seconds to get back on his feet (was 0.6; the knockdown itself was 1.25 s, now 0.95)
-const STANDING = new Set(['free', 'block', 'charge', 'attack', 'dash', 'beam', 'grabbing', 'super', 'hitstun', 'stagger', 'intro', 'landed', 'taunt']);
+const STANDING = new Set(['free', 'block', 'charge', 'attack', 'dash', 'beam', 'grabbing', 'super', 'hitstun', 'stagger', 'intro', 'landed', 'taunt', 'stride', 'rise']);
+// round openers (game/intro.js): kneeling in these the pelvis comes down with the legs (see update)
+const PLANTED = new Set(['landed', 'rise', 'intro']);
+const RISE = 0.8;    // seconds (at the normal pace) to stand up out of the hero landing
+const CHARGE = 46;   // GORRAX charging in to his mark (a touch faster than a run)
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -94,6 +98,12 @@ export class Fighter {
     this.taunting = 0;
     this.lastHitBy = null;
     this.stats = { dealt: 0, hits: 0, maxCombo: 0 };
+    // round openers: where he looks (overrides the lock-on), a spot to walk to, a descent to fly,
+    // and how far the body is lowered into a kneel
+    this.faceTo = null;
+    this.goal = null;
+    this.flight = null;
+    this.crouch = 0;
   }
 
   get opp() { return this.opponent; }
@@ -104,28 +114,42 @@ export class Fighter {
   get airborneLaunch() { return this.state === 'launched'; }
   get floorY() { return G.ground.heightAt(this.pos.x, this.pos.z) + this.hipH; }
 
-  reset(pos, faceTo) {
+  // A new round: health, gauges and flags back to the start and the bruises gone, but he stays
+  // where he is, as he is (the round 2 / 3 openers pick up where the last round left them).
+  refresh() {
     // a beam or a charge still going from last round stops here
     if (this.state === 'beam') this._beamEnd();
     G.audio && G.audio.chargeStop(this);
-    this.pos.copy(pos);
-    this.vel.set(0, 0, 0);
     this.hp = this.maxHp;
     this.beamE = 1;
-    this.state = 'free'; this.stateT = 0; this.move = null;
-    this.ko = false; this.grab = null; this.invuln = 0.5; this.charge = 0;
-    this.comboTaken = 0; this.spinYaw = 0; this.tilt = 0; this.booms.length = 0;
+    this.ko = false; this.invuln = 0.5; this.charge = 0;
+    this.comboTaken = 0; this.booms.length = 0;
     this.boomed = false;
-    this.model.setAction(null, 30);
     this.model.setDamage(0);
-    this.model.glow = 0; this.model.thrust = 0;
     this.model.showSword(false);
+    this.trailBody.clear(); this.trailL.clear(); this.trailR.clear();
+  }
+
+  reset(pos, faceTo) {
+    this.refresh();
+    this.pos.copy(pos);
+    this.vel.set(0, 0, 0);
+    this.state = 'free'; this.stateT = 0; this.move = null;
+    this.grab = null; this.spinYaw = 0; this.tilt = 0;
+    this.faceTo = null; this.goal = null; this.flight = null; this.crouch = 0; this.running = false;
+    this.model.setAction(null, 30);
+    this.model.glow = 0; this.model.thrust = 0;
+    this.model.setVisible(true);
     this.model.root.position.copy(pos);
-    _v.subVectors(faceTo, pos); _v.y = 0;
+    this.face(faceTo);
+  }
+
+  // turn to face a point, at once
+  face(to) {
+    _v.subVectors(to, this.pos); _v.y = 0;
     this.yaw = Math.atan2(_v.x, _v.z);
     this.quat.setFromAxisAngle(UP, this.yaw);
     this.model.root.quaternion.copy(this.quat);
-    this.trailBody.clear(); this.trailL.clear(); this.trailR.clear();
   }
 
   setState(s) {
@@ -169,6 +193,10 @@ export class Fighter {
     this.model.root.position.copy(this.pos);
     const standing = this.grounded && STANDING.has(this.state);
     this.model.update(dt, realDt, this.vel, frozen, standing);
+    // down on one knee (the hero landing, standing up out of it): the body comes down with the
+    // legs, so the knee is on the street instead of hovering over it; eased back out otherwise
+    this.crouch = PLANTED.has(this.state) && this.grounded ? this.model.legDrop() * this.S : damp(this.crouch, 0, 8, dt);
+    this.model.root.position.y -= this.crouch;
     this.kin.setNextKinematicTranslation({ x: this.pos.x, y: this.pos.y + this.H * 0.12, z: this.pos.z });
     this._trails();
     // inputs pressed during hitstop stay queued until the world unfreezes
@@ -231,19 +259,116 @@ export class Fighter {
         this.model.glow = damp(this.model.glow, 0, 1.5, dt);
         if (this.stateT > this.tauntT) { this.setState('free'); this.model.setAction(null, 8); this.model.glow = 0; }
         break;
-      case 'intro': this._friction(dt, 4); break;
-      case 'land': this._land(dt); break;
+      case 'intro': this._friction(dt, 4); this.model.glow = damp(this.model.glow, 0, 3, dt); break;
+      case 'wait': this.vel.set(0, 0, 0); break;
+      case 'descend': this._descend(dt); break;
       case 'landed': this.vel.x = 0; this.vel.z = 0; break;
+      case 'rise': this.vel.x = 0; this.vel.z = 0; this._rise(dt); break;
+      case 'stride': this._stride(dt); break;
     }
   }
 
   _friction(dt, k) { const f = Math.exp(-k * dt); this.vel.x *= f; this.vel.z *= f; }
 
-  // Round-intro arrival (game/intro.js): dropped out of the sky, feet first, into a crater.
-  _land(dt) {
-    this.vel.y = Math.max(this.vel.y - 60 * dt, -110);
-    this._friction(dt, 3);
-    if (this.def.rig === 'mech') this.model.thrust = this.vel.y > -60 ? 1 : 0.4;
+  // ---------------------------------------------------------------- round openers (game/intro.js)
+  // Off stage until his entrance: hidden, parked, nothing moves him.
+  park(at) {
+    this.pos.copy(at);
+    this.vel.set(0, 0, 0);
+    this.setState('wait');
+    this.faceTo = null; this.goal = null; this.flight = null; this.running = false; this.crouch = 0;
+    this.model.setVisible(false);
+  }
+
+  // KAISER-OH's entrance: a powered descent along a curve from `from` over `via` to `to` (pelvis
+  // positions, `to` on the street) taking T seconds, thrusters braking all the way, into a hero
+  // landing on one knee.
+  descend(from, via, to, T) {
+    this.flight = { a: from.clone(), b: via.clone(), c: to.clone(), T, k: 0 };
+    this.pos.copy(from);
+    this.vel.set(0, 0, 0);
+    this.grounded = false;
+    this.setState('descend');
+    this.model.setVisible(true);
+    this.model.setAction(null, 10);
+    this.model.thrust = 1.4;
+    G.audio && G.audio.whoosh(1, this.pos);
+    this.shout('skydive', { odds: 0.8 });
+  }
+
+  _descend(dt) {
+    const F = this.flight;
+    F.k = Math.min(1, F.k + dt / F.T);
+    // streaking in and braking hard, still coming down at a good clip when his feet find the street
+    const s = 0.7 * F.k * (2 - F.k) + 0.3 * F.k, r = 1 - s;
+    _v.copy(F.a).multiplyScalar(r * r).addScaledVector(F.b, 2 * r * s).addScaledVector(F.c, s * s);
+    this.vel.subVectors(_v, this.pos).divideScalar(dt);
+    this.pos.copy(_v);
+    this.model.thrust = 1.1 + 0.3 * (1 - F.k);
+    // the last stretch: the exhaust blasts the street below
+    const gh = F.c.y - this.hipH;
+    if (this.pos.y - gh < 90 && Math.random() < 0.45) G.fx.dustRing(_p.set(F.c.x, gh, F.c.z), 18 + Math.random() * 14, 6, 'dust', 0.9);
+    if (F.k < 1) return;
+    // touchdown: a crater and a shockwave, down on one knee
+    G.fx.groundImpact(_p.set(this.pos.x, gh, this.pos.z).clone(), 125);
+    G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.8, 600);
+    G.input && this === G.player && G.input.rumble(0.8, 0.5, 300);
+    this.vel.set(0, 0, 0);
+    this.model.thrust = 0;
+    this.flight = null;
+    this.grounded = true;
+    this.setState('landed');
+    this.model.setAction(null, 12); // the knees fold fast (the rate the pose blends into the kneel)
+  }
+
+  // up off the knee into his guard: the kneel blends out over RISE as his legs push him up (the
+  // body follows the legs, see update)
+  standUp() {
+    this.setState('rise');
+    this.riseK = 0;
+  }
+
+  _rise(dt) {
+    this.riseK = Math.min(1, this.riseK + dt / (RISE * (G.time ? G.time.pace : 1)));
+    const k = this.riseK;
+    this.model.blend('heroLand', 1 - k * k * (3 - 2 * k));
+    if (k >= 1) { this.model.setAction(null, 8); this.setState('intro'); }
+  }
+
+  // Walk to a spot and stop on it, braking in time (or, `charge`, come running: GORRAX's
+  // entrance, already in his stride at `speed` if given). There: standing ('intro').
+  walkTo(spot, charge = false, speed = 0) {
+    this.goal = spot.clone();
+    this.goalRun = charge;
+    this.setState('stride');
+    this.model.setVisible(true);
+    this.model.setAction(null, 6);
+    if (speed > 0) {
+      this.vel.set(spot.x - this.pos.x, 0, spot.z - this.pos.z).setLength(speed);
+      this.running = charge;
+      this.model.gaitAmt = 1.25; this.model.gaitRun = charge ? 1 : 0;
+    }
+  }
+
+  _stride(dt) {
+    _v.set(this.goal.x - this.pos.x, 0, this.goal.z - this.pos.z);
+    const d = _v.length(), sp = Math.hypot(this.vel.x, this.vel.z);
+    if (d < 0.6) {
+      this.vel.x = 0; this.vel.z = 0;
+      this.goal = null;
+      this.running = false;
+      this.setState('intro');
+      return;
+    }
+    const want = Math.min(this.goalRun ? CHARGE : this.def.walk, Math.sqrt(2 * (this.goalRun ? 45 : 30) * d));
+    _v.multiplyScalar(want / d);
+    // gets going with some weight, brakes on the spot
+    const k = want < sp ? 1 : 1 - Math.exp(-6 * dt);
+    this.vel.x += (_v.x - this.vel.x) * k;
+    this.vel.z += (_v.z - this.vel.z) * k;
+    const run = this.goalRun && sp > this.def.walk * 1.4;
+    if (this.running && !run) G.audio && G.audio.skid(sp, this.pos);
+    this.running = run;
   }
 
   // ---------------------------------------------------------------- free movement
@@ -1207,15 +1332,17 @@ export class Fighter {
 
   _integrate(dt) {
     const st = this.state;
+    // off stage, or flying a scripted descent (round openers): nothing to integrate
+    if (st === 'wait' || st === 'descend') return;
     const held = st === 'grabbed' || st === 'superVictim';
     if (!held) {
-      const g = st === 'launched' || st === 'ko' ? SPEED.launchGravity : st === 'land' ? 0 : SPEED.gravity;
+      const g = st === 'launched' || st === 'ko' ? SPEED.launchGravity : SPEED.gravity;
       if (!this.grounded || this.vel.y > 0) this.vel.y -= g * dt;
     }
     // what's in the way: legs and body wade through it (gently at a walk, hard when running,
     // launched or slamming)
     const sp = Math.hypot(this.vel.x, this.vel.z);
-    if (!held && st !== 'landed' && st !== 'intro' && st !== 'land') {
+    if (!held && st !== 'landed' && st !== 'intro') {
       let k = 0;
       if (st === 'launched' || st === 'ko') k = 1.1;
       else if (st === 'dive' || (st === 'attack' && this.move && (this.move.name === 'tackle' || this.move.name === 'diveSlam'))) k = 1.1;
@@ -1241,13 +1368,7 @@ export class Fighter {
     if (this.pos.y <= floor) {
       const vy = this.vel.y;
       const gp = _p.set(this.pos.x, gh, this.pos.z);
-      if (st === 'land') {
-        G.fx.groundImpact(gp.clone(), 125);
-        G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.8, 600);
-        this.vel.set(0, 0, 0);
-        this.model.thrust = 0;
-        this.setState('landed');
-      } else if (st === 'jump' && vy < 0) {
+      if (st === 'jump' && vy < 0) {
         G.fx.groundImpact(gp.clone(), clamp(-vy * 1.6, 40, 80), { quiet: true });
         this.model.thrust = 0;
         this.setState('stagger'); this.staggerT = 0.18;
@@ -1272,7 +1393,7 @@ export class Fighter {
         if (this.ko) this.stateT = 0.21; // lie down (see `lying`) from now on
         this.model.setAction('down', 14);
       }
-      if (vy < -8 && STANDING.has(this.state) && st !== 'land') G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.12, 250);
+      if (vy < -8 && STANDING.has(this.state)) G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.12, 250);
       this.pos.y = this.state === 'down' || this.state === 'ko' ? gh + this.S * 0.26 : floor;
       if (this.vel.y < 0) this.vel.y = 0;
       this.grounded = true;
@@ -1325,6 +1446,8 @@ export class Fighter {
     if (locked && st !== 'super') want = Math.atan2(o.pos.x - this.pos.x, o.pos.z - this.pos.z);
     else if ((this.running || this.exploring) && hs > 3 && STANDING.has(st) && st !== 'beam') want = Math.atan2(this.vel.x, this.vel.z);
     else if (this.exploring && STANDING.has(st) && st !== 'beam' && st !== 'attack') { G.fightCam.exploreDir(_v); want = Math.atan2(_v.x, _v.z); }
+    // a round opener says where to look (the way he's flying in, the camera he roars at)
+    if (this.faceTo) want = Math.atan2(this.faceTo.x - this.pos.x, this.faceTo.z - this.pos.z);
     // kaiju turn with some weight (snappier while swinging, so attacks track); was 7 / 4.5 / 3
     const rate = st === 'attack' && this.moveT < (this.move ? this.move.def.startup : 0) ? 10 : st === 'free' ? 8 : 5;
     let d = want - this.yaw;
@@ -1353,6 +1476,8 @@ export class Fighter {
       const pitch = clamp(Math.atan2(-v.y, Math.hypot(v.x, v.z)), 0, 1.2) * (this.def.rig === 'beast' ? 0.9 : 0.4);
       _q.multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), pitch));
     }
+    // flying in to a landing: leaning back into the thrust, upright by the time he touches down
+    if (st === 'descend') _q.multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -0.5 * (1 - this.flight.k)));
     const snap = st === 'launched' || st === 'down' || st === 'ko' || st === 'getup' || st === 'grabbed' || st === 'superVictim' || this.spinYaw !== 0;
     this.quat.slerp(_q, snap ? 1 : 1 - Math.exp(-16 * k));
     this.model.root.quaternion.copy(this.quat);
@@ -1370,7 +1495,8 @@ export class Fighter {
     if (st === 'getup') base = 'recover';
     if (st === 'grabbed' || st === 'superVictim') base = 'dangle';
     if (st === 'block') base = 'block';
-    if (st === 'land') base = 'air';
+    if (st === 'descend') base = 'air';
+    if (st === 'stride' && this.running) base = 'run';
     if (st === 'landed') base = 'heroLand';
     if (st === 'taunt') base = 'taunt';
     this.model.setBase(base);
@@ -1396,7 +1522,7 @@ export class Fighter {
     if (this.trailL.emitting) this.trailL.push(this.model.handWorld('L', _v), t);
     if (this.trailR.emitting) this.trailR.push(this.model.handWorld('R', _v), t);
     const sp = this.vel.length();
-    this.trailBody.emitting = (this.state === 'dive' || (this.state === 'jump' && this.def.rig === 'mech' && this.vel.y > 10)) && sp > 20;
+    this.trailBody.emitting = (this.state === 'dive' || this.state === 'descend' || (this.state === 'jump' && this.def.rig === 'mech' && this.vel.y > 10)) && sp > 20;
     if (this.trailBody.emitting) this.trailBody.push(this.model.chestWorld(_v), t);
     this.trailL.update(t, cam); this.trailR.update(t, cam); this.trailBody.update(t, cam);
   }
