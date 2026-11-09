@@ -25,7 +25,7 @@ export const TOUCH_CONTROLS = [
   ['HEAVY', 'Hold to CHARGE · after a combo hit: uppercut'],
   ['JUMP', 'Leap · then PUNCH or HEAVY: slam down on him'],
   ['STOMP', 'A quake that knocks him off his feet'],
-  ['BEAM', 'KAISER BEAM / ATOMIC BREATH when the gauge is full · the stick sweeps it'],
+  ['BEAM', 'When the gauge is full · the stick sweeps it · fired into his: BEAM CLASH (mash PUNCH!)'],
   ['GRAB', 'Shove him through buildings · tap again: throw'],
   ['BLOCK', 'Hold · tap right before a hit to PARRY'],
   ['DASH', 'Tap: sidestep · hold: run (PUNCH while running: tackle)'],

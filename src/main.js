@@ -17,6 +17,7 @@ import { Props } from './world/props.js';
 import { buildTrack, setTrackLoop, Train } from './world/train.js';
 import { Boundary } from './world/boundary.js';
 import { Trees, parkTreeSpots } from './world/trees.js';
+import { Military } from './world/military.js';
 import { chunkUniforms, updateCutaway } from './world/chunkMaterial.js';
 import { FX } from './fx/fx.js';
 import { FightCamera } from './game/camera.js';
@@ -77,6 +78,7 @@ async function boot() {
   G.props = new Props(scene, layout);
   G.trees = layout.real ? new Trees(scene, parkTreeSpots(layout.map, URLP.seed)) : null;
   G.train = new Train(scene);
+  G.military = URLP.nomil ? null : new Military(scene, layout, quality);
   G.boundary = new Boundary(scene);
   G.post = new Post(G.renderer, scene, camera, quality);
   // after the map has set its fog: the weather scales the map's own distances
@@ -244,6 +246,7 @@ function simulate(realDt) {
   G.destruction.update(dt);
   G.props.update(dt);
   G.train.update(dt);
+  G.military && G.military.update(dt, realDt);
   G.ground.update(dt);
   G.fx.update(dt, realDt, G.camera);
   G.fightCam.update(realDt, dt);
@@ -275,6 +278,7 @@ function simulate(realDt) {
 function simulateRecap(realDt) {
   G.time.realTime += realDt;
   G.game.update(0, realDt);
+  G.military && G.military.update(0, realDt); // (the recap poses its units; this only keeps the searchlights off)
   G.recap.update(realDt);
   G.destruction.updateMaterials(G.camera.position);
   G.audio.update(G.camera, G.recap.speed, 0, false);

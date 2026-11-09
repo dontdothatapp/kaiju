@@ -3,6 +3,7 @@
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { rand, chance, pick, clamp, UP } from '../core/math.js';
+import { CLASH } from './moves.js';
 
 export const DIFFICULTY = {
   // roar: how readily he breaks off after an exchange to roar / strike a pose
@@ -74,6 +75,15 @@ export class Brain {
 
     // ---- knocked down: scramble up (or lie there a moment)
     if (f.state === 'down') { if (chance(d.recover * dt * 3)) c.tap('up'); return; }
+    // ---- beam clash: mash, as fast as the difficulty allows (on the players' clock, not the pace's)
+    if (f.clash) {
+      const rate = CLASH.mash[this.dname] ?? CLASH.mash.brutal;
+      this.mashT = (this.mashT || 0) - dt / (G.time ? G.time.pace : 1);
+      if (rate > 0 && this.mashT <= 0) { c.tap('light'); this.mashT = rand(0.75, 1.25) / rate; }
+      return;
+    }
+    // caught in a beam with his own gauge full: now and then he fires back into it
+    if (f.state === 'hitstun' && f.beamLockT > 0 && f.beamE >= 1 && !d.passive && chance(d.beam * 1.6 * dt)) c.tap('rise');
     if (f.state === 'launched' || f.state === 'getup' || f.state === 'grabbed' || f.state === 'superVictim' || f.state === 'hitstun' || f.state === 'stagger' || f.state === 'taunt') {
       c.release('block'); c.release('heavy'); c.release('dash');
       return;
@@ -136,6 +146,8 @@ export class Brain {
       this.reactingTo = 'beam';
       this.reactT = d.react * rand(0.8, 1.4);
       this.defense = chance(d.dodge + 0.2) ? 'dodge' : chance(d.block + 0.1) ? 'block' : 'none';
+      // or answers it with his own: beam meets beam (Fighter._clashStart)
+      if (f.beamE >= 1 && dist > CLASH.minDist + 10 && chance(d.beam * 0.45)) this.defense = 'beam';
     } else if (o.state === 'dive' && this.reactingTo !== 'dive') {
       this.reactingTo = 'dive';
       this.reactT = d.react * rand(1, 1.6);
@@ -147,6 +159,7 @@ export class Brain {
         if (this.defense === 'block') { c.press('block'); this.blockHold = this.reactingTo === 'beam' ? 1.8 : 0.5; }
         else if (this.defense === 'dodge') { c.move.copy(right).multiplyScalar(chance(0.5) ? 1 : -1).addScaledVector(dir, -0.3); c.tap('dash'); }
         else if (this.defense === 'jump') c.tap('up');
+        else if (this.defense === 'beam') c.tap('rise');
         else if (this.defense === 'punish' && dist < 34) { c.tap('light'); this.comboLeft = 2; }
         this.reactingTo = null;
         this.defense = 'none';

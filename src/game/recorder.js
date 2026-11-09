@@ -3,7 +3,8 @@
 // what's on screen after each step and listens in on the systems that change it.
 //
 //   fighters        full pose every frame: root, joints, arm smear, hit flash, bruises, trails
-//   moving things   instance matrices of live debris, tumbling cars and the train, 20 times a second
+//   moving things   instance matrices of live debris, tumbling cars, the train and the military's
+//                   helicopters and tanks, 20 times a second
 //   world changes   for the whole match: when each city chunk broke, debris pieces spawning /
 //                   settling / vanishing, cars waking / settling / burning out
 //   effects         particle, shockwave and comic-word spawns, sounds, screen flashes, camera
@@ -35,6 +36,7 @@ export const MOMENTS = {
   slam: { pre: 1.5, post: 1.5, score: 2 },
   skydive: { pre: 3.0, post: 2.2, score: 7 },
   super: { pre: 2.6, post: 2.4, score: 7 },
+  clash: { pre: 3.4, post: 2.4, score: 9 },
   collapse: { pre: 1.0, post: 4.6, score: 12 },
   train: { pre: 1.4, post: 2.6, score: 6 },
   ko: { pre: 2.0, post: 3.2, score: 10 },
@@ -191,6 +193,9 @@ export class Recorder {
     for (const sys of ['pebbles', 'glass', 'bloodSys', 'sparks', 'smoke']) this._tap(fx[sys], 'spawn', 'part');
     for (const m of ['ring', 'flash', 'star']) this._tap(fx.shock, m, 'shock');
     this._tap(fx.comicText, 'pop', 'comic');
+    // beams: re-aimed every frame, so the calls themselves are the recording
+    this._tap(fx.beam, 'set', 'beam');
+    this._tap(fx.beam, 'flash', 'beam');
     for (const m of ['hit', 'swing', 'whoosh', 'grab', 'crumble', 'glass', 'smashThrough', 'groundSlam', 'field', 'metal', 'skid', 'creak', 'collapse', 'voice']) {
       this._tap(G.audio, m, 'sound');
     }
@@ -348,6 +353,7 @@ export class Recorder {
     const tr = new Float32Array(G.train.cars.length * 7);
     G.train.cars.forEach((c, i) => { c.mesh.position.toArray(tr, i * 7); c.mesh.quaternion.toArray(tr, i * 7 + 3); });
     s.train = tr;
+    if (G.military) s.mil = G.military.snapshot();
   }
 
   _prune(t) {
@@ -361,7 +367,7 @@ export class Recorder {
     let floats = 0, samples = 0, events = 0;
     for (const b of this.samples.blocks) for (const s of b.items) {
       samples++;
-      floats += FW * 2 + (s.deb ? s.deb.length : 0) + (s.cars ? s.cars.length : 0) + (s.train ? s.train.length : 0);
+      floats += FW * 2 + (s.deb ? s.deb.length : 0) + (s.cars ? s.cars.length : 0) + (s.train ? s.train.length : 0) + (s.mil ? s.mil.length : 0);
     }
     for (const b of this.events.blocks) events += b.items.length;
     for (const w of this.world) floats += w.length;

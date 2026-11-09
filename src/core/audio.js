@@ -717,6 +717,25 @@ export class AudioEngine {
     this.duck(0.6, 1.4);
   }
 
+  // the military (world/military.js): a chin-gun burst, a rocket leaving its rail, a tank gun
+  gunfire(pos) {
+    if (!this._ok('gun', 0.12)) return;
+    const o = this._dest(pos, 0.5);
+    for (let i = 0; i < 3; i++) this.noise(o, { t: i * 0.07, dur: 0.05, f: 1700, q: 1.2, vol: 0.7 });
+  }
+
+  rocket(pos) {
+    if (!this._ok('rocket', 0.3)) return;
+    this.noise(this._dest(pos, 0.6), { dur: 0.7, f: 500, f1: 2400, q: 0.8, vol: 0.6, attack: 0.03 });
+  }
+
+  cannon(pos) {
+    if (!this._ok('cannon', 0.25)) return;
+    const o = this._dest(pos, 0.9);
+    this.tone(o, { f: 120, f1: 38, dur: 0.35, vol: 0.9, dist: true });
+    this.noise(o, { type: 'lowpass', f: 1400, f1: 200, dur: 0.3, vol: 0.6 });
+  }
+
   chargeStart(f) {
     if (!this.live || this.muted || this.charges.has(f)) return;
     const ctx = this.ctx;

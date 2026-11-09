@@ -193,6 +193,7 @@ export class FX {
     G.props && G.props.sweep(p, _v.set(f.vel.x, -20, f.vel.z), 7, 0);
     if (G.trees) G.trees.knock(p.x, p.z, 7);
     G.debris.explosion(p, 16, 3 + k * 3, 0.5, 20);
+    G.military && G.military.blast(p, 8, f, true, true); // a tank under the foot
     // stepping into a building: its ground floor caves in round the foot
     _w.set(p.x, p.y + 5, p.z);
     if (G.destruction.structsNear(_w, 7).length) G.destruction.impact({ pos: _w, radius: 7, power: 0.5, vel: _v.set(f.vel.x, -6, f.vel.z), shatter: 14, maxChunks: 14 });
@@ -247,6 +248,7 @@ export class FX {
     G.fightCam && G.fightCam.addTraumaAt(pos, 0.9, 700);
     G.debris.explosion(pos, 70 * s, 22 * s, 0.6);
     G.props && G.props.explosion(pos, 80 * s, 20);
+    G.military && G.military.blast(pos, 34 * s);
     G.destruction.impact({ pos, radius: 6 * s, power: 1, vel: _v.set(0, 10, 0), shatter: 50 * s, maxChunks: 30 });
     this.comic('boom', pos.clone().add(_w.set(0, 20 * s, 0)), 1.4 + s * 0.3);
     G.audio && G.audio.explosion(pos, s);
@@ -316,6 +318,7 @@ export class FX {
     }
     G.debris.explosion(p, radius * 3.5, 14 * s, 0.7);
     G.props && G.props.explosion(p, radius * 4.5, 16 * s);
+    G.military && G.military.blast(p, radius * 1.5, null, true);
     G.destruction.impact({ pos: p, radius: radius * 0.45, power: 0.6 * s, vel: new THREE.Vector3(0, 10, 0), shatter: radius * 2.2 });
     if (!opts.quiet) this.comic('ground', p.clone().setY(gy + 3 + radius * 0.3), 0.9 + s * 0.6);
     G.audio && G.audio.groundSlam(s, p);

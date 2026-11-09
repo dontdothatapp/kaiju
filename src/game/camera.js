@@ -157,7 +157,8 @@ export class FightCamera {
       const at = this.attention;
       const glance = at ? clamp(at.t / 0.6, 0, 1) : 0;
       if (at && (at.t -= realDt) <= 0) this.attention = null;
-      const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45, this.chase * 0.6);
+      // (a beam clash gets the room too: both of them and the ball of light between)
+      const spread = Math.max(clamp((flat - 45) / 140, 0, 1), 0.85 * glance, this.air * 0.45, this.chase * 0.6, p.clash ? 0.6 : 0);
       this.wide = this.cutNext ? spread : damp(this.wide, spread, spread < this.wide ? 1.6 : 1.1, realDt);
       const W = this.wide;
       // portrait: further back and higher, and centred (a narrow screen has no room beside him)

@@ -58,6 +58,7 @@ Useful URL flags:
 - `?pace=2`: game speed over the move data's base (also the Pace option on the title: Normal 1.5×,
   Brisk 2.25×, Fast 3×; hitstop and slow-mo stay in real time). Everything in the fight moves
   faster, nothing else changes.
+- `?nomil`: no helicopters or tanks (see [The military](#the-military-srcworldmilitaryjs)).
 - `?tutorial`, `?norecap`, `?mute`, `?fps` (the frame-rate readout, also a checkbox under the
   title's options: frames per second and the frame interval, simulation and physics milliseconds,
   the GPU's own frame time, the render scale when it's below 100%, the time scale during slow
@@ -73,7 +74,7 @@ Useful URL flags:
 | LMB / J | X | Combo ×4. KAISER-OH: jab, cross, hook, **KAISER HAMMER**. GORRAX: claw, claw, bite, **TAIL WHIP** (a full spin; the tail sweeps 40 m) |
 | RMB / K (hold) | Y | Heavy; hold to **charge**. Heavy right after a combo hit = **uppercut** |
 | C | LT | **STOMP**: a quake that knocks him off his feet if he's standing near you. Jump it |
-| G / B | D-pad up / R3 | **BEAM**: KAISER BEAM out of the chest emblem / ATOMIC BREATH. A / D sweep it across the skyline. The gauge under your health bar refills in 9 s |
+| G / B | D-pad up / R3 | **BEAM**: KAISER BEAM out of the chest emblem / ATOMIC BREATH. A / D sweep it across the skyline. The gauge under your health bar refills in 9 s. Fired into his beam it's a **BEAM CLASH**: mash LMB / J (X on a pad) to push it back into him |
 | E / L / MMB | B | **Grab**: out of reach, you run at him first. Then shove him through the buildings, and tap again to **throw** |
 | Q / F | LB | Block; tap just before a hit to **parry** |
 | R / U | RB | **Super** (full meter): KAISER-OH's **SABER FINAL STRIKE**, GORRAX's **NUCLEAR NOVA** |
@@ -89,6 +90,9 @@ HEAVY (hold to charge), JUMP, DASH (hold: run), GRAB, BLOCK and SUPER. `?touch` 
 on a desktop.
 
 Best of 3 rounds. **The city remembers**: destruction persists between rounds and rematches.
+Every match ends with a **rank** (S to C for a win, D or F for a loss) and a score, stamped on
+screen as the results come up; your best score per difficulty is remembered (see
+[The report card](#the-report-card)).
 After the match a **recap** of its best moments plays, then the results offer **Watch recap**,
 **Rematch**, **New city**, **Rampage** and **Main menu**. **Rampage** lets your kaiju loose on
 the wreckage with every move working on the buildings: walk, run, stomp, punch towers down, and
@@ -115,7 +119,11 @@ BLOCK and backs off for the BEAM. Nobody gets knocked out. It ends on **Fight fo
    **E** again to throw him into the next one.
 5. Build the meter and press **R** next to him: KAISER-OH's sword comes down out of the sky on a
    lightning bolt; GORRAX's plates blaze before the point-blank nova.
-6. In **Training** he never fights back: wreck Midtown in peace, or win a match and go on a
+6. When his plates light up (or the emblem starts to glow), press **G** yourself: the two beams
+   meet in a ball of light between you. Mash **LMB** / **J** to shove it down his throat.
+7. Swat a helicopter: they hover at head height round the monster. A fist, a tail whip, a beam
+   or simply being thrown through one does it, and it spins down into whatever is underneath.
+8. In **Training** he never fights back: wreck Midtown in peace, or win a match and go on a
    **Rampage**.
 
 ## The kaiju
@@ -190,6 +198,19 @@ run-in tackle, grapple and throw, block and parry, sidestep.
   it. Every building along the line gets cut, and where it meets the street it throws up fire,
   sparks, scorch marks and craters. Blocking only takes chip damage, and about a second of
   sustained beam knocks him off his feet. Its gauge refills in 9 s.
+- **Beam clash** (`Fighter._clashStart`, `CLASH` in `moves.js`). A beam that lands on a kaiju
+  who is winding up or firing his own, facing it, doesn't hurt him: the two beams lock. So does
+  a beam fired from inside the other one's hitstun, if your gauge is full (you start further
+  back). A ball of light sits where they meet, spitting both colours sideways and blowing out
+  windows for blocks around, and every press of an attack button shoves it toward the other
+  kaiju. It ends when it reaches a mouth, or after 3.2 s with whoever is ahead: the winner's
+  beam goes straight through, 20 damage and a 60 m/s launch across town. The bot mashes at 4.2,
+  6 or 7.5 presses a second (Sparring, Brutal, King), and answers your beam with his own more
+  often the harder he is. The clock for all of it is real time, whatever the Pace setting.
+- **Rage** (`RAGE` in `moves.js`). The first time a round takes a kaiju under 30% health he gets
+  his second wind for the rest of it: GORRAX's plates blaze and he roars, KAISER-OH goes into
+  OVERDRIVE. Hits land 20% harder, the beam gauge refills 1.6 times as fast and a quarter of
+  the super meter arrives on the spot, so a round that looked settled usually isn't.
 - **Grapple:** grab, shove him through buildings for a second (steer with the stick; the
   robot hoists him overhead), then throw, with aim-assist toward the nearest tower. Within ~37 m
   the grab goes straight out; further away you **run at him** first (42 m/s, straight through
@@ -218,6 +239,39 @@ run-in tackle, grapple and throw, block and parry, sidestep.
   the last one ended: the loser gets up where he went down, both walk back to their corners
   (about 70 m apart, on open ground) facing each other, the monster roars and the robot strikes
   its pose, and the bell goes. Any key or tap skips straight to them standing on their marks.
+
+### The military (`src/world/military.js`)
+
+The army turns up, as it does in every one of these films, and is about as much use. Attack
+helicopters take up stations round the monster at chest-to-head height, low over a street or a
+low roof where there is one, hold them for a few seconds firing the chin gun (and every third
+pass a rocket), then move to another; towers on the way are climbed over. Tanks patrol the
+avenues and lob shells. After dark each helicopter keeps a searchlight on him.
+
+- **They hunt the monster**: GORRAX during a fight, whichever kaiju is rampaging after it. Their
+  fire is sparks off the suit: about 7 health over a whole round, never the last of it, no
+  flinch. `?nomil` sends them home.
+- **They are there to be swatted.** A fist, a claw or a tail in its active frames, a beam, a
+  kaiju flying past, a quake, an explosion or a foot coming down takes one out
+  (`hitSphere` / `hitRay` / `blast`, called by the fighters and the effect recipes). A downed
+  helicopter spins away trailing smoke and blows a hole in whatever it lands on; a stepped-on
+  tank is flat, any other wreck loses its turret. Each one is worth a little super meter, $14M
+  on the damage bill and a few points on the report card.
+- **Replacements keep coming**: the next helicopter flies in from outside the city after ten
+  seconds or so, the next tank appears on a street well away from both kaiju.
+- Nothing here is a physics body: four instanced meshes (helicopter, rotor, hull, turret) moved
+  by hand, plus a small pool of slugs for rockets and shells. The recorder samples their
+  matrices with the debris, so they are in the recap too.
+
+### The report card
+
+When a match ends it is scored (`Game._report`): 5,000 for the win (1,000 per round in a loss),
+up to 1,500 a round for the health you kept and 1,000 for the clock, style (best combo, clashes
+won, supers, parries, throws, swatted helicopters and tanks) and mayhem (buildings down, the
+damage bill). A loss counts half. The rank comes from that total: **S** from 13,000, **A** from
+10,500, **B** from 8,500, **C** for any other win, **D** or **F** for a loss. The difficulty then
+multiplies the score (Brutal 1.5×, Kaiju King 2×) but not the rank, and the best score per
+difficulty is kept in `localStorage`. Training isn't scored.
 
 ## The destruction system
 
@@ -370,16 +424,17 @@ key or tap skips to the results, and **Watch recap** plays it again.
 - **Recording.** The recorder never steers the simulation. After each step it samples what's on
   screen, and it listens in on the systems that change it:
   - the fighters' full pose every frame (root, joints, arm smear, hit flash, bruises, trails);
-  - the instance matrices of live debris, tumbling cars and the train, 20 times a second;
+  - the instance matrices of live debris, tumbling cars, the train and the military's
+    helicopters and tanks, 20 times a second;
   - for the whole match, when each city chunk broke and when debris pieces spawned, settled or
     vanished;
-  - every particle, shockwave and comic-word spawn, sound, screen flash and camera shake, as
-    the call that made it.
+  - every particle, shockwave and comic-word spawn, beam, sound, screen flash and camera shake,
+    as the call that made it.
 
   Moving data older than 8 seconds is dropped unless it belongs to a highlight, so a match holds
   a few MB.
 - **Highlights.** The game marks big knockdowns, crashes through buildings, street slams, leap
-  slams, supers, the train, building collapses (landmarks count extra) and KOs. Moments close
+  slams, supers, beam clashes, the train, building collapses (landmarks count extra) and KOs. Moments close
   together merge into one clip; the best seven are kept while the match runs. The recap takes the
   final KO plus the best of the rest that fit in about 30 seconds, in match order.
 - **Playback.** The simulation stands still. For each clip the recap rebuilds the city as it
@@ -530,7 +585,7 @@ skyscraper-ending haymaker stay proportional:
 | Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
 | Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |
 | World | Tokusatsu spark bursts, impact stars, flash spheres, shockwave rings, beams, fireballs, cel-shaded smoke with inked rims, rubble, glass, craters and footprints, comic onomatopoeia and move names ("ATOMIC BREATH!"). |
-| UI | Lagging chip damage, shaking bars, super meter and beam gauge, combo counter with grades, property-damage counter (it climbs into the billions), toasts, speech bubbles. |
+| UI | Lagging chip damage, shaking bars, super meter and beam gauge, combo counter with grades, the beam-clash tug-of-war bar, a burning health bar in a rage, property-damage counter (it climbs into the billions), toasts, speech bubbles, the rank stamp. |
 | Audio | Recorded punches with procedural sub thumps, footfall thuds, beam roar, explosions, voice shouts and roars, ElevenLabs effects for destruction; a metal soundtrack that ducks under big hits. |
 | Haptics | Gamepad dual-rumble scaled by hit strength (and a little for your own footsteps). |
 
@@ -605,6 +660,7 @@ src/world/structures.js    chunk store, impact gradient, integrity, collapse, pa
 src/world/chunkMaterial.js facade/fracture shader (parent-space patterns), the cutaways round both kaiju
 src/world/ground.js        deformable heightfield, craters, footprints, painted streets, outer ground
 src/world/                 boundary (force field), props (parked cars), train (elevated viaduct), trees
+src/world/military.js      attack helicopters and tanks: stations, fire, getting swatted, searchlights
 src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, Voronoi library
 src/fx/                    pebbles/glass/sparks, cel smoke, shockwaves, comic text, trails, beams (beam.js)
 src/fx/fx.js               effect recipes: hits, ground impacts, footfalls, pyrotechnics, fireballs, explosions, sword slashes
@@ -646,6 +702,8 @@ node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png
 - Debris doesn't collide with *intact* neighbouring buildings until those buildings take damage
   (lazy collider refinement).
 - The robot doesn't combine from smaller vehicles at the round start; it just flies in.
+- The military's units aren't physics bodies: a wreck doesn't tumble or get kicked around, and
+  shells and rockets pass through buildings on their way to the monster. There are no jets yet.
 - Single-player against the bot only. Local 2P would mostly need a second input mapping and a
   shared camera.
 - GPU cost was not profiled on real hardware (the dev container renders in software); the

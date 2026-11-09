@@ -119,3 +119,25 @@ export const BEAM = {
   recharge: 9,   // seconds for a full beam gauge
   turn: 0.75,    // rad/s the beam tracks him (and you sweep it with left / right)
 };
+
+// BEAM CLASH: two beams meet and lock. `k` is where they meet between the two mouths (0 at the
+// one who fired first .. 1 at the other); each press shoves it `push` toward the other one, and it
+// ends when it gets within `edge` of a mouth or after `time` seconds (real ones, whatever the pace)
+// with whoever is ahead. `late` / `counter` are where it starts for a beam fired into one already
+// pouring out (still winding up / fired from inside its hitstun).
+export const CLASH = {
+  minDist: 40,   // closer than this the beams just hit the bodies
+  push: 0.045,
+  edge: 0.08,
+  time: 3.2,
+  late: 0.58,
+  counter: 0.66,
+  dmg: 20,
+  launch: 60,
+  mash: { training: 0, sparring: 4.2, brutal: 6, king: 7.5 }, // the bot's presses per second
+};
+
+// RAGE: the first time a round takes him under `at` of his health he gets his second wind, for
+// the rest of the round: hits `power` times harder, the beam gauge refills `beam` times faster,
+// and `meter` goes onto his super on the spot.
+export const RAGE = { at: 0.3, power: 1.2, beam: 1.6, meter: 25 };

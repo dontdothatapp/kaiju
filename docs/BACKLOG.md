@@ -22,12 +22,13 @@ bit the elevated train in 1954), the broken top of a tower as a club.
 with no opponent in reach could look for the nearest one in front, make it kinematic in the hand
 (`model.handWorld`) and launch it like `Fighter.launch` on throw.
 
-## 3. The military shows up
+## 3. The military shows up (done, mostly)
 
-**Want.** Tanks in the streets and jets overhead firing at whichever kaiju is the monster, so
-there's something to swat between exchanges, and the city feels inhabited.
-**Way in.** Cheap instanced vehicles on the street graph from `layout.streets`; their shells are
-small `fx.fireball`s; a kaiju stepping on a tank uses the same footfall crush as cars.
+**Now.** Attack helicopters hover round the monster and tanks patrol the avenues, firing at it;
+anything a kaiju does takes them out (`src/world/military.js`, README "The military").
+**Still wanted.** Jets making passes overhead. Wrecks as Rapier bodies, so a downed helicopter
+tumbles down a facade and a tank can be kicked down the street (or picked up, see 2). Shells
+that stop at the first building in the way and take a bite out of it.
 
 ## 4. Sounds recorded for the scale
 

@@ -28,7 +28,7 @@ export const G = {
     fps: false,        // the frame-rate readout (title options, or ?fps); remembered in localStorage
     pace: 1.5,         // game speed over the move data's base: 1.5 normal, 2.25 brisk, 3 fast (title options, or ?pace=); remembered
   },
-  stats: { chunksDestroyed: 0, buildingsCollapsed: 0 },
+  stats: { chunksDestroyed: 0, buildingsCollapsed: 0, military: 0 },
 };
 
 const params = new URLSearchParams(location.search);
@@ -73,6 +73,7 @@ export const URLP = {
   pace: (() => { const v = parseFloat(params.get('pace')); return v >= 0.5 && v <= 4 ? v : 0; })(), // game speed multiplier (default 1.5)
   nopace: params.has('nopace'),       // no GPU fences / frame pacing (main.js GpuGauge), for comparison
   debug: params.has('debug'),
+  nomil: params.has('nomil'),         // no military (world/military.js): the city to yourselves
   quality: params.get('quality'),
   scale: params.get('scale') ? Math.min(1, Math.max(0.5, parseFloat(params.get('scale')) || 1)) : 0, // pin the render scale (0.5..1); default: dynamic
   seed: next.seed ?? (params.get('seed') ? parseInt(params.get('seed'), 10) : 1337),
