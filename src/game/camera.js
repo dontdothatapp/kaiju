@@ -1,17 +1,18 @@
 // Lock-on fight camera at kaiju scale, with trauma shake (Eiserloh: shake = trauma^2 * noise),
 // directional kick springs, FOV punches, a wider shot while you're knocked flying and a low-angle
-// cinematic for the supers. The camera sits 90-150 m back at chest height; whatever stands between
-// it and a fighter is cut away round him, an ink-rimmed hole (world/chunkMaterial.js), so it never
-// has to dodge buildings. It does pick the better shoulder, though: every quarter second it
-// measures how much standing building lies between each side's camera and the two of them, and
-// swings round to the clearer side (and cranes up when both are walled in), so the cutaway is the
-// fallback, not the usual view.
+// cinematic for the supers. The camera sits 90-150 m back at chest height; a building that stands
+// between it and a fighter leaves the picture whole (world/sightline.js, structures.js updateView),
+// so it never has to dodge buildings. It does pick the better shoulder, though: every quarter
+// second it measures how much standing building lies between each side's camera and the two of
+// them, and swings round to the clearer side (and cranes up when both are walled in), so hiding
+// buildings is the fallback, not the usual view.
 // Motion: the heading the shot is built on turns at a capped rate (the camera orbits when they
 // swap sides, it doesn't cut through them), and position and aim follow on critically damped
 // springs, which ease into a move where a plain exponential lerp jerks.
 import * as THREE from 'three';
 import { G } from '../core/context.js';
 import { clamp, damp, noise1, lerp, UP } from '../core/math.js';
+import { liveTop } from '../world/structures.js';
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -42,16 +43,6 @@ function springTo(cur, target, vel, smoothTime, dt) {
   _t.copy(vel).addScaledVector(_c, omega).multiplyScalar(dt);
   vel.addScaledVector(_t, -omega).multiplyScalar(e);
   cur.copy(target).add(_c.add(_t).multiplyScalar(e));
-}
-
-// The top of what still stands of a building (a tower knocked down to a stump no longer blocks
-// the view above it). Cached until it loses another chunk.
-function liveTop(s) {
-  if (s._topAt === s.aliveCount) return s._top;
-  let y = s.ny - 1;
-  while (y > 0 && s.levelAlive[y] <= 0) y--;
-  s._topAt = s.aliveCount;
-  return (s._top = Math.min(s.max.y, s.origin.y + (y + 1) * s.sy));
 }
 
 // Metres of standing building along the segment a -> b (each building as its box).

@@ -243,27 +243,38 @@ function createSkyline(scene, destruction, rng) {
   addSkylineMesh(scene, destruction, items, rng);
 }
 
-// Non-destructible boxes { x, z, w, d, h, style, y?, color?, beacon? } as instanced meshes that
-// reuse the chunk shader (per-floor window cells), plus blinking aircraft warning lights. The
+// Non-destructible boxes { x, z, w, d, h, style, y?, color?, beacon?, g? } as instanced meshes
+// that reuse the chunk shader (per-floor window cells), plus blinking aircraft warning lights. The
 // boxes are grouped into 400 m cells: each cell is culled against the camera and the shadow
-// camera on its own, and only the cells near the arena cast shadows at all.
+// camera on its own, and only the cells near the arena cast shadows at all. Consecutive boxes with
+// the same `g` are one building (a footprint in several rectangles, a tower's setbacks): they
+// stay in one cell, and leave the picture together when the building stands in the camera's way.
 export function addSkylineMesh(scene, D, items, rng) {
   const CELL = 400;
-  const cells = new Map();
+  const cells = new Map(), cellOf = new Map();
   for (const it of items) {
-    const k = Math.floor(it.x / CELL) * 4096 + Math.floor(it.z / CELL);
+    let k = it.g === undefined ? undefined : cellOf.get(it.g);
+    if (k === undefined) {
+      k = Math.floor(it.x / CELL) * 4096 + Math.floor(it.z / CELL);
+      if (it.g !== undefined) cellOf.set(it.g, k);
+    }
     if (!cells.has(k)) cells.set(k, []);
     cells.get(k).push(it);
   }
   const q = new THREE.Quaternion(), m = new THREE.Matrix4();
-  const beacons = [];
+  const beacons = [], lit = [];
   for (const list of cells.values()) {
     const geo = chunkBoxGeometry();
     const attrs = addChunkAttributes(geo, list.length);
     const mesh = new THREE.InstancedMesh(geo, D.materials.plain, list.length);
     const min = new THREE.Vector3(Infinity, Infinity, Infinity), max = new THREE.Vector3(-Infinity, -Infinity, -Infinity);
+    const groups = [];
     list.forEach((it, i) => {
       const y = it.y || 0;
+      const lo = new THREE.Vector3(it.x - it.w / 2, y, it.z - it.d / 2), hi = new THREE.Vector3(it.x + it.w / 2, y + it.h, it.z + it.d / 2);
+      let g = groups[groups.length - 1];
+      if (!g || it.g === undefined || it.g !== g.g) groups.push(g = { g: it.g, i0: i, n: 0, boxes: [], lights: [] });
+      g.n++; g.boxes.push(new THREE.Box3(lo, hi));
       m.compose(new THREE.Vector3(it.x, y + it.h / 2, it.z), q, new THREE.Vector3(it.w, it.h, it.d));
       mesh.setMatrixAt(i, m);
       mesh.setColorAt(i, it.color || new THREE.Color(rng.pick(PALETTES[it.style])));
@@ -271,16 +282,16 @@ export function addSkylineMesh(scene, D, items, rng) {
       attrs.style.array.set([ww, wh, it.style, 0], i * 4);
       attrs.parent.array.set([it.w, it.h, it.d, rng() * 100], i * 4);
       attrs.cell.array.set([it.w / Math.max(1, Math.round(it.w / 3)), CITY.FLOOR, it.d / Math.max(1, Math.round(it.d / 3))], i * 3);
-      min.min(new THREE.Vector3(it.x - it.w / 2, y, it.z - it.d / 2));
-      max.max(new THREE.Vector3(it.x + it.w / 2, y + it.h, it.z + it.d / 2));
-      if (it.beacon ?? it.h > 85) beacons.push(new THREE.Vector3(it.x, y + it.h + 1.2, it.z));
+      min.min(lo); max.max(hi);
+      if (it.beacon ?? it.h > 85) { g.lights.push(beacons.length); beacons.push(new THREE.Vector3(it.x, y + it.h + 1.2, it.z)); }
     });
     // shadows reach ~230 m from the fight, which stays inside the arena: far cells can't cast one
     const dx = Math.max(min.x - ARENA, -ARENA - max.x, 0), dz = Math.max(min.z - ARENA, -ARENA - max.z, 0);
     mesh.castShadow = Math.hypot(dx, dz) < 260;
     mesh.receiveShadow = true;
     mesh.name = 'skyline';
-    D.registerCityMesh(mesh, min, max);
+    const cm = D.registerCityMesh(mesh, min, max, { groups });
+    groups.forEach((g, n) => { if (g.lights.length) lit.push([cm.units[n], g.lights]); });
     scene.add(mesh);
   }
   if (beacons.length) {
@@ -289,6 +300,8 @@ export function addSkylineMesh(scene, D, items, rng) {
     beacons.forEach((p, i) => bmesh.setMatrixAt(i, new THREE.Matrix4().makeTranslation(p.x, p.y, p.z)));
     bmesh.computeBoundingSphere();
     scene.add(bmesh);
+    // a hidden tower takes its light with it
+    for (const [unit, ids] of lit) unit.lights = { mesh: bmesh, at: ids.map((i) => [i, beacons[i]]) };
     // slow blink, like real aircraft warning lights
     bmesh.onBeforeRender = () => { bm.color.setRGB(Math.sin(performance.now() * 0.003) > 0.2 ? 2 : 0.2, 0.2, 0.2); };
   }

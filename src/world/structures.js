@@ -10,7 +10,8 @@
 //   collapse       -> creak/dust wind-up, failure travelling outward, coherent lean,
 //                     merged slabs that shatter on landing and crush what is below (pancaking)
 import * as THREE from 'three';
-import { chunkMaterials, chunkUniforms, cutaway, addChunkAttributes, STYLE } from './chunkMaterial.js';
+import { chunkMaterials, addChunkAttributes, STYLE } from './chunkMaterial.js';
+import { inSight } from './sightline.js';
 import { G } from '../core/context.js';
 import { clamp, rand, randomUnit, smoothstep } from '../core/math.js';
 
@@ -23,8 +24,30 @@ const KIND = { WALL: 0, SLAB: 1, CORNER: 2, SOLID: 3 };
 const FAR_DIST = 350;        // beyond this a building gets the detail-less shader
 const INTEGRITY_EVERY = 0.2; // seconds between integrity checks of one structure
 const INTEGRITY_PER_FRAME = 1;
+// A building between the lens and a kaiju isn't cut into: it leaves the picture whole (updateView).
+const HIDE_OUT = 0.16;       // seconds to fade out once it's in the way
+const HIDE_IN = 0.3;         // ... and to come back
+const HIDE_HOLD = 0.35;      // seconds it stays out after the view of them clears (no flicker at the edge)
+const LENS_CLEAR = 5;        // a building the lens is this close to goes too: the camera never looks out of a wall
+const LENS_IN = 1.5;         // the lens this close is in it already: no time for a fade
+const LENS_AHEAD = 0.35;     // ... or will be, this many seconds on (it has to be gone by the time the lens gets there)
+const CAM_CUT = 20;          // the lens moving further than this in one frame is a cut: no fades across it
 const _box = new THREE.Box3();
-const _sph = new THREE.Sphere();
+const _camAt = new THREE.Vector3(Infinity, 0, 0);
+const _camDir = new THREE.Vector3();
+const _camWas = new THREE.Vector3();
+const _camVel = new THREE.Vector3();
+const _lens = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]; // the lens now, and where it's heading
+
+// The top of what still stands of a building (a tower knocked down to a stump no longer blocks
+// the view above it). Cached until it loses another chunk.
+export function liveTop(s) {
+  if (s._topAt === s.aliveCount) return s._top;
+  let y = s.ny - 1;
+  while (y > 0 && s.levelAlive[y] <= 0) y--;
+  s._topAt = s.aliveCount;
+  return (s._top = Math.min(s.max.y, s.origin.y + (y + 1) * s.sy));
+}
 
 // Every city mesh shares the 1x1x1 box; each one gets its own geometry object so it can carry its
 // own per-instance attributes, but the vertex buffers are the same three.js attributes.
@@ -84,22 +107,37 @@ export class Destruction {
     this.falls = [];       // dust, rubble and shaking for buildings on their way down
     this.smolders = [];    // wrecks that go on smoking (smolderAt)
     this.crushBudget = 0;
-    this.materials = chunkMaterials();
-    this.material = this.materials.seeThrough; // what the debris draws with
-    this.cityMeshes = [];      // every static city mesh (buildings, skyline cells) + bounds, for updateMaterials
+    this.materials = chunkMaterials(G.settings.quality !== 'low');
+    this.material = this.materials.debris; // what the debris draws with
+    this.cityMeshes = [];      // every static city mesh (buildings, skyline cells), for updateView
     this.dirtyStructs = new Set();
     this.pendingIntegrity = new Set();
     this.eventsThisFrame = 0;
     this.time = 0;
   }
 
-  // A static mesh drawn with the chunk shader; its material is picked per frame by distance and
-  // by whether it stands between the camera and a fighter.
-  registerCityMesh(mesh, min, max) {
+  // A static mesh drawn with the chunk shader. Its material is picked per frame by distance, and
+  // what stands between the camera and a fighter is hidden (updateView): the whole mesh for a
+  // building (`struct`), or one building at a time for a mesh of many (a skyline cell; `groups`:
+  // each building's run of instances { i0, n } and their boxes). Returns the entry; its `units`
+  // are what can be hidden.
+  registerCityMesh(mesh, min, max, { struct = null, groups = null } = {}) {
     const c = new THREE.Vector3().addVectors(min, max).multiplyScalar(0.5);
     mesh.boundingSphere = new THREE.Sphere(c, c.distanceTo(max));
     mesh.frustumCulled = true;
-    this.cityMeshes.push({ mesh, min: min.clone(), max: max.clone() });
+    // how much of each instance shows (the fade variant of the shader reads it)
+    const fade = new THREE.InstancedBufferAttribute(new Float32Array(mesh.count).fill(1), 1);
+    fade.setUsage(THREE.DynamicDrawUsage);
+    mesh.geometry.setAttribute('aFade', fade);
+    // a unit: its bounds, and when it isn't one box (an L-shaped footprint, setbacks) the boxes it is made of
+    const unit = (box, i0, n, parts) => ({ box, i0, n, parts: parts && parts.length > 1 ? parts : null, k: 1, hold: 0, lights: null, dark: false });
+    const box = new THREE.Box3(min.clone(), max.clone());
+    const units = groups
+      ? groups.map((g) => unit(g.boxes.reduce((b, p) => b.union(p), new THREE.Box3()), g.i0, g.n, g.boxes))
+      : [unit(box, 0, mesh.count, struct && struct.intactBoxes && struct.intactBoxes.map(([x0, y0, z0, x1, y1, z1]) => new THREE.Box3(new THREE.Vector3(x0, y0, z0), new THREE.Vector3(x1, y1, z1))))];
+    const cm = { mesh, box, struct, units, fade, busy: 0, faded: 0 };
+    this.cityMeshes.push(cm);
+    return cm;
   }
 
   // ---------- generation ----------
@@ -168,7 +206,7 @@ export class Destruction {
       mesh.name = 'city-' + s.id;
       // a full upload asked for (the recap) must not be cut short by a range added before it went up
       for (const a of [mesh.instanceMatrix, attrs.style, attrs.hit]) { a.fullPending = false; a.onUpload(() => { a.fullPending = false; }); }
-      this.registerCityMesh(mesh, s.min, s.max);
+      this.registerCityMesh(mesh, s.min, s.max, { struct: s });
       this.scene.add(mesh);
       s.mesh = mesh;
       s.attrs = attrs;
@@ -226,26 +264,66 @@ export class Destruction {
     }
   }
 
-  // Pick each city mesh's shader for this frame: the see-through (discard) variant only where a
-  // building hugs the camera or reaches into a fighter's cutaway (chunkMaterial.js updateCutaway,
-  // which runs first), the detail-less variant far away, the plain one otherwise. A building in a
-  // cutaway is also what opens it.
-  updateMaterials(camPos) {
-    const M = this.materials, fade = chunkUniforms.uFadeDist.value;
-    const fa = cutaway.frusta[0], fb = cutaway.frusta[1];
-    let ba = false, bb = false;
+  // What the camera shows of the city this frame. A building that stands between the lens and a
+  // kaiju (world/sightline.js, which runs first), or that the lens is about to touch, is hidden
+  // whole: it fades out quickly, stays out while it's in the way and a moment longer, and fades
+  // back in. Across a cut nothing fades. It keeps its shadow and its colliders: only the picture
+  // changes. Also picks each mesh's shader: the fade variant while any of it is on its way out or
+  // back, the detail-less one far away, the plain one otherwise.
+  updateView(camera, realDt) {
+    const M = this.materials, camPos = camera.position;
+    camera.getWorldDirection(_camDir);
+    const cut = !(camPos.distanceTo(_camAt) < CAM_CUT) || _camDir.dot(_camWas) < 0.9;
+    // the lens over the next third of a second, at the speed it's travelling (smoothed: a shake isn't travel)
+    if (cut || !(realDt > 0)) _camVel.set(0, 0, 0);
+    else _camVel.lerp(_lens[2].copy(camPos).sub(_camAt).divideScalar(realDt), 1 - Math.exp(-8 * realDt));
+    _lens[0].copy(camPos);
+    _lens[2].copy(_camVel).multiplyScalar(LENS_AHEAD).clampLength(0, 15).add(camPos);
+    _lens[1].copy(camPos).lerp(_lens[2], 0.5);
+    _camAt.copy(camPos); _camWas.copy(_camDir);
+    const out = cut ? 1 : realDt / HIDE_OUT, back = cut ? 1 : realDt / HIDE_IN;
     for (const cm of this.cityMeshes) {
       const mesh = cm.mesh;
       if (!mesh.visible) continue;
-      _box.min.copy(cm.min); _box.max.copy(cm.max);
-      const dCam = _box.distanceToPoint(camPos);
-      const a = !!fa && fa.intersectsBox(_box), b = !!fb && fb.intersectsBox(_box);
-      if (a) ba = true;
-      if (b) bb = true;
-      const mat = dCam < fade + 1 || a || b ? M.seeThrough : dCam > FAR_DIST ? M.far : M.plain;
+      const s = cm.struct;
+      if (s) cm.box.max.y = liveTop(s); // (what's left of it: a stump hides nobody's head)
+      const dCam = cm.box.distanceToPoint(camPos);
+      // only a building leaves for a sightline (a viaduct at their ankles covers nothing, and the
+      // train needs it): anything else only once the lens is as good as inside it
+      const near = !s || s.kind === 'building' ? (!s || s.aliveCount > 0) && (lensNear(cm.box) || inSight(cm.box)) : dCam < 2;
+      if (near || cm.busy) {
+        let busy = 0, faded = 0;
+        for (const u of cm.units) {
+          const hide = near ? inWay(u, s ? cm.box.max.y : Infinity) : 0;
+          if (hide) u.hold = HIDE_HOLD; else if (u.hold > 0) u.hold = cut ? 0 : u.hold - realDt;
+          const want = hide || u.hold > 0 ? 0 : 1;
+          if (u.k !== want) {
+            // (the lens already in it, a camera move too quick to see coming: gone at once)
+            u.k = want < u.k ? (hide === 2 ? 0 : Math.max(0, u.k - out)) : Math.min(1, u.k + back);
+            this._showUnit(cm, u);
+          }
+          if (u.k < 1) faded++;
+          if (u.k < 1 || u.hold > 0) busy++;
+        }
+        cm.busy = busy; cm.faded = faded;
+      }
+      const mat = cm.faded ? M.fade : dCam > FAR_DIST ? M.far : M.plain;
       if (mesh.material !== mat) mesh.material = mat;
     }
-    cutaway.blocked[0] = ba; cutaway.blocked[1] = bb;
+  }
+
+  // write how much of a unit shows (eased) into its instances; a tower's warning lights go with it
+  _showUnit(cm, u) {
+    const a = cm.fade;
+    a.array.fill(u.k * u.k * (3 - 2 * u.k), u.i0, u.i0 + u.n);
+    if (u.n < cm.mesh.count) a.addUpdateRange(u.i0, u.n);
+    a.needsUpdate = true;
+    const L = u.lights;
+    if (L && (u.k < 0.5) !== u.dark) {
+      u.dark = u.k < 0.5;
+      for (const [i, p] of L.at) L.mesh.setMatrixAt(i, u.dark ? ZERO_M : _m.makeTranslation(p.x, p.y, p.z));
+      L.mesh.instanceMatrix.needsUpdate = true;
+    }
   }
 
   // ---------- queries ----------
@@ -987,6 +1065,28 @@ export class Destruction {
     }
     this._flushLevels();
   }
+}
+
+// Is the lens (now, or where it's heading) as good as touching this box?
+function lensNear(box) {
+  return box.distanceToPoint(_lens[0]) < LENS_CLEAR || box.distanceToPoint(_lens[1]) < LENS_CLEAR || box.distanceToPoint(_lens[2]) < LENS_CLEAR;
+}
+
+// Is this unit in the camera's way: about to touch the lens, or standing in a sightline (1)? Or
+// is the lens in it already (2)? `top`: how high it still stands. A unit made of several boxes is
+// in the way only if one of them is.
+function inWay(u, top) {
+  if (!(lensNear(u.box) || inSight(u.box))) return 0;
+  if (!u.parts) return u.box.distanceToPoint(_lens[0]) < LENS_IN ? 2 : 1;
+  let way = 0;
+  for (const p of u.parts) {
+    if (p.min.y >= top) continue;
+    _box.copy(p);
+    if (_box.max.y > top) _box.max.y = top;
+    if (_box.distanceToPoint(_lens[0]) < LENS_IN) return 2;
+    if (!way && (lensNear(_box) || inSight(_box))) way = 1;
+  }
+  return way;
 }
 
 function sameAlong(a, b) {

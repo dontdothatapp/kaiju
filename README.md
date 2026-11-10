@@ -145,10 +145,11 @@ that:
   times a second it measures how many metres of standing building lie between each side's camera
   and the two of them, swings round behind you to the other side when that one has clearly been
   better for most of a second (and not again for five), and cranes up when both sides are walled
-  in. Whatever still stands between the lens and either kaiju is cut away round him, a clean
-  ink-rimmed pill fitted to his outline on screen (`src/world/chunkMaterial.js`), and nothing
-  within 22 m of the lens is drawn at all. The heading the shot is built on turns at a capped
-  rate, so when the two swap sides the camera orbits round instead of cutting through them;
+  in. A building that still stands between the lens and either kaiju leaves the picture whole: it
+  fades out in a sixth of a second and comes back once the view is clear
+  (`src/world/sightline.js`), and so does one the lens is about to pass through. The heading the
+  shot is built on turns at a capped rate, so when the two swap sides the camera orbits round
+  instead of cutting through them;
   position and aim follow on critically damped springs; a KO pushes in on the one going down;
 - hit sparks, shockwaves, craters, dust, the force field, the shadow frustum and sound falloff
   all scaled up to match.
@@ -430,14 +431,31 @@ Early playtesting showed the screen spending most of a fight buried in dust. The
   culled outright, so it never fills the screen.
 - Chunk-break dust is smaller and shorter-lived, and dust spawns thin out as the smoke pool fills.
   A collapse still gets its big cloud, but it settles in seconds.
-- Buildings get **cutaways** instead (`src/world/chunkMaterial.js`): each frame both kaiju are
-  projected through the real camera (the portrait view offset included) and a pill on screen is
-  fitted round each one's joints, padded by his bulk. Any building or debris fragment inside it
-  and nearer the lens than he is isn't drawn; a thin ink rim just outside the cut makes it read
-  as drawn rather than broken, and everything else stays fully opaque. A cutaway opens over 0.2 s
-  when a building first gets in the way and closes once none does; flung-out limbs widen it at
-  once and it settles back calmly. In free roam the beaten one only gets one within 260 m. The
-  shadow pass doesn't see any of it.
+- Buildings **step out of the way** instead (`src/world/sightline.js`, `structures.js →
+  updateView`). Each frame both kaiju are projected through the real camera (the portrait view
+  offset included) and a rectangle on screen is fitted round each one's joints, padded by his
+  bulk and clipped to the screen; the corridor from the lens through that rectangle, stopping
+  just short of his spine, is his sightline. A building that reaches into one is hidden whole:
+  no hole is cut in it. It fades out over 0.16 s, stays out while it's in the way and a third of
+  a second longer, and fades back over 0.3 s; a limb flung out widens the rectangle at once and
+  it settles back calmly, so nothing at its edge flickers. Across a camera cut nothing fades.
+  - The fade is **alpha to coverage** on the scene's 4x MSAA: a fading building keeps one, two or
+    three of each pixel's four samples, so it thins evenly, what is behind it shows through and
+    its own back walls don't, and the depth buffer the ink outlines read stays clean (a dither
+    would have inked every other pixel). Low quality has no MSAA and no ink, and dithers.
+  - A hidden building **keeps its shadow and its colliders**: the light on the street doesn't
+    jump when it goes, and walking into it still wrecks it.
+  - Only what is in the way goes. A wall he has his back to, or is knocked halfway into, stays; so
+    does what only covers the soles of his feet, the viaduct, and a tower knocked down to a stump
+    below the sightline. An L-shaped footprint or a tower with setbacks is tested box by box.
+  - The **skyline** past the arena is drawn in 400 m cells of many buildings; each one hides on
+    its own (and takes its warning light with it), so a camera that backs out past the force
+    field doesn't lose a whole district.
+  - The lens itself: a building it is within 5 m of, or will be in the next third of a second at
+    the speed it's travelling, goes too (at once if the lens is already inside). Buildings beside
+    the camera stay, so a street still reads as a canyon. Rubble within 22 m of the lens isn't
+    drawn.
+  - In free roam the beaten one only gets a sightline within 130 m.
 
 ### Line work and grounding
 
@@ -622,11 +640,11 @@ facade shader, twice (the shadow pass). What keeps that under control (`src/worl
   of all of them, and only skyline cells near the arena cast shadows.
 - **Interior floor slabs** (over a third of all chunks) stay out of the draw until a building is
   first touched: nothing can see them through an intact facade.
-- **Three variants of the chunk shader.** The cut round the lens and the cutaways toward the
-  fighters need `discard`, which turns off early depth rejection for a whole draw. Only the
-  buildings that actually reach into a cutaway (or hug the camera) use that variant, picked every
-  frame; everything else uses a plain one, and buildings beyond 350 m one without the crack, fire
-  and spiderweb detail that would be sub-pixel anyway. Debris always draws with the cutaways.
+- **Four variants of the chunk shader**, picked per mesh every frame. Buildings draw with a plain
+  one (no `discard`, so early depth rejection stays on), beyond 350 m with one without the crack,
+  fire and spiderweb detail that would be sub-pixel anyway, and only while fading out of the
+  camera's way with the alpha-to-coverage one; a hidden building's vertices are moved off screen,
+  so it costs no pixels. Only the debris pays for a `discard` (the cut round the lens).
 - **Resolution.** High renders at 1.5× device pixels at most, medium 1.25×, with the drawing
   buffer's long side capped near 2560 px (a 2× laptop or a 4K monitor was drawing 4× the pixels of
   1080p through the post stack). On top of that **dynamic resolution** watches the frame interval:
@@ -732,7 +750,8 @@ src/world/city.js          procedural downtown (blocks, setback towers) + outer 
 src/world/realCity.js      real-map buildings: footprints -> cells, party walls, setbacks, skyline, landmarks
 src/world/maps/            real map data (tools/extract-nyc-map.mjs)
 src/world/structures.js    chunk store, impact gradient, integrity, collapse, pancake
-src/world/chunkMaterial.js facade/fracture shader (parent-space patterns), the cutaways round both kaiju
+src/world/chunkMaterial.js facade/fracture shader (parent-space patterns) and its variants
+src/world/sightline.js     the corridors from the lens to both kaiju: what stands in one is hidden whole
 src/world/ground.js        deformable heightfield, craters, footprints, painted streets, outer ground
 src/world/                 boundary (force field), props (parked cars), train (elevated viaduct), trees
 src/world/military.js      attack helicopters and tanks: stations, fire, getting swatted, searchlights
