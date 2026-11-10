@@ -470,7 +470,7 @@ export class Game {
     if (held(p) || held(b)) return;
     const dx = b.pos.x - p.pos.x, dz = b.pos.z - p.pos.z;
     if (Math.abs(b.pos.y - p.pos.y) > 28) return; // one is in the air above the other
-    const d = Math.hypot(dx, dz), min = (p.R + b.R) * 0.92;
+    const d = Math.hypot(dx, dz), min = (p.R + b.R) * 1.1; // (0.92 let the lizard's snout stand in the robot's chest)
     if (d >= min || d < 1e-3) return;
     const nx = dx / d, nz = dz / d, push = (min - d) / 2;
     p.pos.x -= nx * push; p.pos.z -= nz * push;

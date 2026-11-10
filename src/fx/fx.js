@@ -29,12 +29,15 @@ export class FX {
   }
 
   update(dt, realDt, camera) {
+    // A hitstop freezes the world, not the hit: sparks, flashes and rings play through it (frozen
+    // at their first frame they were a white blob over the blow for as long as it was held).
+    const T = G.time, hit = dt > 0 || !T || !T.frozen || T.paused ? dt : realDt * T.pace;
     this.pebbles.update(dt);
     this.glass.update(dt);
-    this.bloodSys.update(dt);
-    this.sparks.update(dt);
+    this.bloodSys.update(hit);
+    this.sparks.update(hit);
     this.smoke.update(dt);
-    this.shock.update(dt, camera);
+    this.shock.update(hit, camera);
     this.comicText.update(dt, realDt);
     this.beam.update(dt);
   }

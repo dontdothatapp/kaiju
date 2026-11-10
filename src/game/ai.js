@@ -112,7 +112,7 @@ export class Brain {
       if (this.drill === 'swing') {
         if (dist > 30) c.move.copy(dir);
         this.drillT = (this.drillT || 0) - dt;
-        if (f.state === 'free' && dist < 34 && this.drillT <= 0) { c.tap('light'); this.drillT = 1.8; }
+        if (f.state === 'free' && dist < 38 && this.drillT <= 0) { c.tap('light'); this.drillT = 1.8; }
       } else if (this.drill === 'keepAway') {
         if (dist < 90) c.move.copy(dir).negate();
       } else c.move.copy(right).multiplyScalar(Math.sin(G.time.gameTime * 0.4) * 0.25);
@@ -160,7 +160,7 @@ export class Brain {
         else if (this.defense === 'dodge') { c.move.copy(right).multiplyScalar(chance(0.5) ? 1 : -1).addScaledVector(dir, -0.3); c.tap('dash'); }
         else if (this.defense === 'jump') c.tap('up');
         else if (this.defense === 'beam') c.tap('rise');
-        else if (this.defense === 'punish' && dist < 34) { c.tap('light'); this.comboLeft = 2; }
+        else if (this.defense === 'punish' && dist < 38) { c.tap('light'); this.comboLeft = 2; }
         this.reactingTo = null;
         this.defense = 'none';
       }
@@ -186,7 +186,7 @@ export class Brain {
     if (f.state === 'charge') {
       this.chargeHold -= dt;
       c.move.copy(dir).multiplyScalar(0.8);
-      const reach = 34 + f.charge * 20;
+      const reach = 38 + f.charge * 20;
       if ((dist < reach && f.charge > 0.35) || this.chargeHold <= 0) c.release('heavy');
       else c.press('heavy');
       return;
@@ -211,7 +211,7 @@ export class Brain {
         return;
       }
       if (dist > 70) this.plan = 'approach';
-      else if (dist < 34) {
+      else if (dist < 38) {
         if (r < d.aggression) {
           this.plan = 'strafe';
           if (o.state === 'block' && chance(0.5 + d.grab)) { c.tap('grab'); this.grabCd = rand(4, 7); }
@@ -222,7 +222,7 @@ export class Brain {
       } else {
         // out of reach a grab is a run at him (Fighter.grabStart): now and then, more if he's turtling
         if (this.grabCd <= 0 && (o.state === 'free' || o.state === 'block' || o.state === 'charge') && o.grounded && chance(d.grab * (o.state === 'block' ? 1.2 : 0.16))) { c.tap('grab'); this.grabCd = rand(6, 10); }
-        else if (r < d.charge * 0.6 && dist > 38) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
+        else if (r < d.charge * 0.6 && dist > 42) { c.press('heavy'); this.chargeHold = rand(0.6, 1.4); this.plan = 'approach'; }
         else this.plan = r < 0.3 + d.aggression * 0.6 ? 'approach' : 'strafe';
       }
       if (f.hp < f.maxHp * 0.3) this.say('low');
@@ -236,7 +236,7 @@ export class Brain {
       if (f.running && dist < 40 && chance(d.aggression)) c.tap('light');
     } else if (this.plan === 'strafe') {
       c.release('dash');
-      c.move.copy(right).multiplyScalar(this.strafeDir * 0.8).addScaledVector(dir, dist > 32 ? 0.5 : dist < 24 ? -0.4 : 0);
+      c.move.copy(right).multiplyScalar(this.strafeDir * 0.8).addScaledVector(dir, dist > 36 ? 0.5 : dist < 28 ? -0.4 : 0);
     } else if (this.plan === 'retreat') {
       c.release('dash');
       c.move.copy(dir).multiplyScalar(-0.7).addScaledVector(right, this.strafeDir * 0.5);

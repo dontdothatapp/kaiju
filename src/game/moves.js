@@ -4,48 +4,54 @@
 //   hitstop tiers: light ~6f, heavy ~12f, launchers 14-20f (heavier than a human fighter)
 //   limb: what sweeps through buildings during the active frames ('L', 'R', 'both', 'tail',
 //   'head', 'foot', 'body'); launch: knockback speed in m/s (they fly, then gravity wins)
+//   range: he's hit within this of him (centre to centre); lunge: how far the wind-up closes in,
+//   down to arm's length (the two bodies' radii + stand, 8 unless given: a fist's reach, so the
+//   blow lands on his face and not through the back of his head; a grab goes right up to him)
+//   react: where it lands on him, 'body' (he folds over it) or, unsaid, the head (it snaps back);
+//   lead: how long before the hit frames the strike pose goes out (the limb is at full reach as
+//   it lands; fighter.js has the default), longer for a limb with further to travel
 export const MOVES = {
   jab: {
     pose: ['jabW', 'jabS'], side: 'L', limb: 'L', startup: 0.13, active: 0.08, recovery: 0.24,
-    dmg: 4, kb: 9, hitstun: 0.5, hitstop: 0.09, fx: 0.4, lunge: 8, range: 25,
+    dmg: 4, kb: 9, hitstun: 0.5, hitstop: 0.09, fx: 0.4, lunge: 8, range: 29,
     next: 'cross', chain: 0.34, meter: 4, sound: 'light',
   },
   cross: {
     pose: ['crossW', 'crossS'], side: 'R', limb: 'R', startup: 0.14, active: 0.08, recovery: 0.26,
-    dmg: 4.5, kb: 10, hitstun: 0.52, hitstop: 0.1, fx: 0.48, lunge: 8, range: 25,
+    dmg: 4.5, kb: 10, hitstun: 0.52, hitstop: 0.1, fx: 0.48, lunge: 8, range: 29,
     next: 'hook', chain: 0.34, meter: 4, sound: 'light',
   },
   hook: {
     pose: ['hookW', 'hookS'], side: 'L', limb: 'L', startup: 0.19, active: 0.09, recovery: 0.3,
-    dmg: 6, kb: 13, hitstun: 0.58, hitstop: 0.12, fx: 0.62, lunge: 8, range: 26,
+    dmg: 6, kb: 13, hitstun: 0.58, hitstop: 0.12, fx: 0.62, lunge: 8, range: 30,
     next: 'smash', chain: 0.36, meter: 5, sound: 'mid',
   },
   // the combo ender: KAISER HAMMER (both fists down) / GORRAX's tail whip (a full spin)
   smash: {
-    pose: ['smashW', 'smashS'], side: 'R', limb: 'both', startup: 0.3, active: 0.14, recovery: 0.5,
-    dmg: 10, launch: 44, up: 0.4, hitstop: 0.2, fx: 1.05, lunge: 9, range: 27,
+    pose: ['smashW', 'smashS'], side: 'R', limb: 'both', startup: 0.3, active: 0.14, recovery: 0.5, lead: 0.07,
+    dmg: 10, launch: 44, up: 0.4, hitstop: 0.2, fx: 1.05, lunge: 9, range: 31,
     meter: 8, sound: 'heavy', comic: 'heavy', slowmo: [0.35, 0.22],
   },
   heavy: {
     pose: ['chargeW', 'chargeS'], side: 'R', limb: 'R', startup: 0.28, active: 0.1, recovery: 0.46,
-    dmg: 10, launch: 42, up: 0.35, hitstop: 0.18, fx: 0.95, lunge: 12, range: 27,
+    dmg: 10, launch: 42, up: 0.35, hitstop: 0.18, fx: 0.95, lunge: 12, range: 31,
     meter: 7, sound: 'heavy', comic: 'heavy',
   },
   // charged versions scale with `charge` (0..1) at runtime
   heavyCharged: {
     pose: ['chargeW', 'chargeS'], side: 'R', limb: 'R', startup: 0.12, active: 0.12, recovery: 0.55,
     dmg: 12, dmgCharge: 14, launch: 48, launchCharge: 34, up: 0.3, hitstop: 0.18, hitstopCharge: 0.14,
-    fx: 1.1, fxCharge: 0.7, lunge: 12, lungeCharge: 22, range: 28, meter: 9, sound: 'huge', comic: 'huge',
+    fx: 1.1, fxCharge: 0.7, lunge: 12, lungeCharge: 22, range: 32, meter: 9, sound: 'huge', comic: 'huge',
     guardBreak: 0.7, impactFrame: 0.8, slowmo: [0.25, 0.35],
   },
   uppercut: {
     pose: ['upperW', 'upperS'], side: 'R', limb: 'R', startup: 0.22, active: 0.1, recovery: 0.46,
-    dmg: 9, launch: 38, dir: 'up', hitstop: 0.16, fx: 0.95, lunge: 9, range: 26,
+    dmg: 9, launch: 38, dir: 'up', hitstop: 0.16, fx: 0.95, lunge: 9, range: 30,
     meter: 7, sound: 'heavy', comic: 'heavy',
   },
   // STOMP: a quake. Knocks a grounded opponent off his feet anywhere near; jump it.
   stomp: {
-    pose: ['stompW', 'stompS'], side: 'R', limb: 'foot', startup: 0.42, active: 0.1, recovery: 0.55,
+    pose: ['stompW', 'stompS'], side: 'R', limb: 'foot', startup: 0.42, active: 0.1, recovery: 0.55, lead: 0.09,
     dmg: 7, quake: 52, hitstop: 0.16, fx: 0.9, lunge: 4, range: 52,
     meter: 6, sound: 'heavy', comic: 'ground',
   },
@@ -66,19 +72,20 @@ export const MOVES = {
   // out; or a stumbling miss (runStumble s on top of the recovery) if it runs out or goes past him
   grab: {
     pose: ['grab', 'grab'], side: 'R', limb: null, startup: 0.18, active: 0.12, recovery: 0.55,
-    dmg: 0, grab: true, hitstop: 0.06, fx: 0.3, lunge: 10, range: 27, meter: 0, sound: 'grab',
+    dmg: 0, grab: true, hitstop: 0.06, fx: 0.3, lunge: 10, range: 27, stand: 4, meter: 0, sound: 'grab',
     runSpeed: 42, runTurn: 2.4, runTime: 1.8, runReach: 32, runStumble: 0.3,
   },
   superRush: {
     pose: ['grab', 'hold'], side: 'L', limb: null, startup: 0.28, active: 0.16, recovery: 0.6,
-    dmg: 0, superGrab: true, hitstop: 0.1, fx: 0.6, lunge: 34, range: 29, meter: 0, sound: 'grab',
+    dmg: 0, superGrab: true, hitstop: 0.1, fx: 0.6, lunge: 34, range: 29, stand: 4, meter: 0, sound: 'grab',
   },
 };
 
 // GORRAX's versions of the shared moves (same slots, different reach / feel)
 const MOVE_MODS = {
   gorrax: {
-    hook: { limb: 'head', range: 27, dmg: 6.5 },                     // the bite
+    jab: { react: 'body' }, cross: { react: 'body' },                // claws raked across the chest
+    hook: { limb: 'head', range: 30, dmg: 6.5, stand: 6 },           // the bite: he has to get his jaws on him
     smash: { limb: 'tail', spin: true, range: 40, startup: 0.26, active: 0.3, recovery: 0.42, launch: 46, up: 0.3 }, // tail whip
     heavyCharged: { limb: 'both' },
   },
