@@ -22,7 +22,7 @@ export class FX {
     this.glass = makeGlassSystem(scene, Math.floor(3500 * q));
     this.bloodSys = makeBloodSystem(scene, Math.floor(900 * q));
     this.sparks = new SparkSystem(scene, Math.floor(2500 * q));
-    this.smoke = new SmokeSystem(scene, Math.floor(2200 * q), quality === 'low' ? 1 : 2);
+    this.smoke = new SmokeSystem(scene, Math.floor(2200 * q), quality === 'low' ? 1 : 2, quality !== 'low');
     this.shock = new ShockSystem(scene);
     this.comicText = new ComicText(scene);
     this.beam = new BeamSystem(scene);
