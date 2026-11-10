@@ -16,6 +16,9 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const ZERO_M = new THREE.Matrix4().makeScale(0, 0, 0);
 const HASH = 10;
+const GRAVITY = 13;       // as the physics world's
+const MAX_GHOSTS = 600;   // pieces falling without a body at once
+const SWEEP = 24;         // parked pieces checked for support each frame
 
 // Upload only instances lo..hi of an instanced attribute at the next render instead of the whole
 // array (three.js uploads everything when needsUpdate is set without update ranges, and drops the
@@ -72,6 +75,14 @@ export class DebrisSystem {
     this.drySmall = false;
     this._pickR = [];
     this._pickK = [];
+    // Pieces falling without a physics body ("ghosts"): free fall and a tumble, down to whatever
+    // stands under them. A collapse that outruns the body budget drops its slabs this way (they
+    // used to be parked where they were let go, and hung in the sky), and so does parked rubble
+    // whose support has gone.
+    this.ghosts = [];
+    this.frozenList = [];      // every parked piece (rec.fi is its index), for the support sweep
+    this.sweepI = 0;
+    this.landFx = 0;           // ghost landings that still get dust and a thud this frame
 
     const boxGeo = new THREE.BoxGeometry(1, 1, 1);
     this._addShape(scene, boxGeo, quality === 'low' ? 3000 : 6000, material, null);
@@ -206,7 +217,12 @@ export class DebrisSystem {
 
   // o: { pos, quat, size, cell, color, style[4], parent, offset, vel, angvel, breakable, cells, small, crusher }
   spawnBox(o) {
-    if (this.freeBudget <= 0 && !this._makeRoom(1, o.priority)) return null;
+    let ghost = false;
+    if (this.freeBudget <= 0 && !this._makeRoom(1, o.priority)) {
+      // no room for a body: a collapse piece falls without one, anything else isn't spawned
+      if (!o.priority || this.ghosts.length >= MAX_GHOSTS) return null;
+      ghost = true;
+    }
     const idx = this._alloc(BOX);
     if (idx < 0) return null;
     const rec = {
@@ -219,7 +235,8 @@ export class DebrisSystem {
       trail: !!o.crusher && Math.max(o.size.x, o.size.y, o.size.z) > 4, trailT: Math.random() * 0.15,
     };
     this._writeAttrs(rec, rec);
-    this._makeBody(rec, o.pos, o.quat, o.vel, o.angvel);
+    if (ghost) this._ghost(rec, o.pos, o.quat, o.vel, o.angvel);
+    else this._makeBody(rec, o.pos, o.quat, o.vel, o.angvel);
     this._setMatrix(rec, o.pos, o.quat);
     return rec;
   }
@@ -309,6 +326,9 @@ export class DebrisSystem {
         k = -rec.age;
       } else {
         if (!(rec.lsp >= 0 && rec.lsp <= 9)) continue;
+        // slow for a moment isn't at rest: a slab just let go, or at the top of its arc, would be
+        // parked in mid-air (free fall passes 3 m/s within a third of a second)
+        if (!rec.asleep && !(rec.calmT > 0.7)) continue;
         k = rec.asleep ? -1 : rec.lsp;
       }
       if (n === want && k >= K[n - 1]) continue;
@@ -331,35 +351,214 @@ export class DebrisSystem {
   _freeze(rec) {
     if (!rec.body) return;
     const t = rec.body.translation(), r = rec.body.rotation();
-    rec.fpos = new THREE.Vector3(t.x, t.y, t.z);
-    rec.fquat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
-    this._setMatrix(rec, rec.fpos, rec.fquat);
+    const pos = new THREE.Vector3(t.x, t.y, t.z), quat = new THREE.Quaternion(r.x, r.y, r.z, r.w);
     this._removeBody(rec);
+    this._park(rec, pos, quat);
+  }
+
+  // The piece stays here (pos / quat are kept), as static rubble: no body, in the rubble hash.
+  _park(rec, pos, quat) {
+    rec.fpos = pos;
+    rec.fquat = quat;
+    this._setMatrix(rec, pos, quat);
     rec.frozen = true;
+    // its box in the world (half sizes), for the support check; a Voronoi shard is a part of its scale
+    const e = _m.makeRotationFromQuaternion(quat).elements, s = rec.scale, k = rec.shape === BOX ? 0.5 : 0.3;
+    rec.fhx = k * (Math.abs(e[0]) * s.x + Math.abs(e[4]) * s.y + Math.abs(e[8]) * s.z);
+    rec.fhy = k * (Math.abs(e[1]) * s.x + Math.abs(e[5]) * s.y + Math.abs(e[9]) * s.z);
+    rec.fhz = k * (Math.abs(e[2]) * s.x + Math.abs(e[6]) * s.y + Math.abs(e[10]) * s.z);
     this.shapes[rec.shape].frozenQ.push(rec);
-    const key = hashKey(rec.fpos.x, rec.fpos.z);
+    rec.fi = this.frozenList.length;
+    this.frozenList.push(rec);
+    const key = hashKey(pos.x, pos.z);
     rec.hashKey = key;
     let set = this.rubbleHash.get(key);
     if (!set) this.rubbleHash.set(key, (set = new Set()));
     set.add(rec);
   }
 
-  _unfreeze(rec, vel, angvel) {
+  // no longer parked (about to move again, or gone)
+  _unpark(rec) {
     if (!rec.frozen) return;
+    rec.frozen = false;
     const set = this.rubbleHash.get(rec.hashKey);
     if (set) set.delete(rec);
-    rec.frozen = false;
+    const L = this.frozenList, last = L.pop();
+    if (last !== rec) { L[rec.fi] = last; last.fi = rec.fi; }
+    rec.fi = -1;
+  }
+
+  _unfreeze(rec, vel, angvel) {
+    if (!rec.frozen) return;
+    this._unpark(rec);
     rec.sleepT = 0;
     rec.age = 0;
     this._makeBody(rec, rec.fpos, rec.fquat, vel, angvel);
   }
 
+  // ---------- ghosts: falling without a body ----------
+  _ghost(rec, pos, quat, vel, angvel) {
+    rec.ghost = true;
+    rec.gpos = pos.clone(); rec.gquat = quat.clone(); rec.gvel = vel.clone(); rec.gang = angvel.clone();
+    rec.gfloor = -Infinity; rec.gfloorT = 0; rec.gpile = false;
+    rec.age = 0;
+    this.ghosts.push(rec);
+  }
+
+  // what a falling piece comes down on at (x, z), from height y: the street (craters, rubble mounds)
+  // or the top of whatever still stands under it
+  _floorUnder(x, y, z) {
+    const g = G.ground.heightAt(x, z);
+    return G.destruction ? Math.max(g, G.destruction.floorUnder(x, y, z)) : g;
+  }
+
+  _updateGhosts(dt) {
+    const L = this.ghosts;
+    let trails = 0;
+    for (let i = L.length - 1; i >= 0; i--) {
+      const rec = L[i], p = rec.gpos, q = rec.gquat, w = rec.gang;
+      rec.age += dt;
+      rec.gvel.y -= GRAVITY * dt;
+      p.addScaledVector(rec.gvel, dt);
+      // q += 0.5 * w * q * dt
+      _q.set(w.x, w.y, w.z, 0).multiply(q);
+      q.set(q.x + _q.x * 0.5 * dt, q.y + _q.y * 0.5 * dt, q.z + _q.z * 0.5 * dt, q.w + _q.w * 0.5 * dt).normalize();
+      if (!rec.gpile && (rec.gfloorT -= dt) <= 0) { rec.gfloorT = 0.2; rec.gfloor = this._floorUnder(p.x, p.y, p.z); }
+      const e = _m.makeRotationFromQuaternion(q).elements, s = rec.scale;
+      const hy = 0.5 * (Math.abs(e[1]) * s.x + Math.abs(e[5]) * s.y + Math.abs(e[9]) * s.z);
+      let crumble = p.y < -40 || rec.age > 30;
+      if (!rec.gpile && p.y - hy <= rec.gfloor + 3.2) {
+        // nearly down: it comes to rest on the rubble already lying here, and where that's piled
+        // high it breaks up on it instead (the mound in the street is the pile; a neat stack of
+        // a hundred floor plates isn't)
+        rec.gpile = true;
+        const hx = 0.5 * (Math.abs(e[0]) * s.x + Math.abs(e[4]) * s.y + Math.abs(e[8]) * s.z);
+        const hz = 0.5 * (Math.abs(e[2]) * s.x + Math.abs(e[6]) * s.y + Math.abs(e[10]) * s.z);
+        const top = this._pileTop(p, hx * 0.6, hz * 0.6, p.y - hy + 0.5);
+        if (top > rec.gfloor + 2.6) crumble = true;
+        else if (top > rec.gfloor) rec.gfloor = top;
+      }
+      if (crumble || p.y - hy <= rec.gfloor) {
+        L[i] = L[L.length - 1]; L.pop();
+        rec.ghost = false;
+        if (crumble) {
+          if (p.y > -40) {
+            G.fx.pebbleBurst(p, Math.min(10, 2 + s.length() * 0.6), _v.set(rec.gvel.x * 0.3, 3, rec.gvel.z * 0.3), rec.color, Math.min(3, s.length() * 0.3));
+            if (this.landFx > 0) { this.landFx--; G.fx.dustPuff(p, Math.min(2.6, s.length() * 0.4), 2, 'dust'); }
+          }
+          this._kill(rec);
+          continue;
+        }
+        p.y = rec.gfloor + this._flop(rec, hy);
+        this._ghostLand(rec);
+        continue;
+      }
+      if (rec.trail && (rec.trailT -= dt) <= 0 && trails < 3 && rec.gvel.y < -10 && G.fx.smoke.load < 0.8) {
+        const sz = Math.min(3.5, s.length() * 0.2);
+        G.fx.smoke.spawn(p.x, p.y, p.z, rec.gvel.x * 0.15, rec.gvel.y * 0.08, rec.gvel.z * 0.15, sz, 2.2, rand(2.2, 3.6), 'dust', 1.8, 0.5);
+        rec.trailT = 0.14;
+        trails++;
+      }
+      this._setMatrix(rec, p, q);
+    }
+  }
+
+  // A thin piece (a floor plate, a strip of facade) comes down flat, give or take: with no body
+  // to tip it over it would stay as it fell, standing on an edge. Returns its half height as it lies.
+  _flop(rec, hy) {
+    const s = rec.scale, mn = Math.min(s.x, s.y, s.z);
+    if (mn > Math.max(s.x, s.y, s.z) * 0.45) return hy;
+    const q = rec.gquat;
+    const thin = (mn === s.x ? _w.set(1, 0, 0) : mn === s.y ? _w.set(0, 1, 0) : _w.set(0, 0, 1)).applyQuaternion(q);
+    _v.set(rand(-0.14, 0.14), thin.y < 0 ? -1 : 1, rand(-0.14, 0.14)).normalize();
+    q.premultiply(_q.setFromUnitVectors(thin, _v)).normalize();
+    const e = _m.makeRotationFromQuaternion(q).elements;
+    return 0.5 * (Math.abs(e[1]) * s.x + Math.abs(e[5]) * s.y + Math.abs(e[9]) * s.z);
+  }
+
+  // the top of the parked rubble under the box (half sizes hx, hz) round p, no higher than `hi`
+  _pileTop(p, hx, hz, hi) {
+    let best = -Infinity;
+    const i0 = Math.floor((p.x - hx - HASH) / HASH), i1 = Math.floor((p.x + hx + HASH) / HASH);
+    const j0 = Math.floor((p.z - hz - HASH) / HASH), j1 = Math.floor((p.z + hz + HASH) / HASH);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const set = this.rubbleHash.get(i * 73856093 ^ j * 19349663);
+      if (!set) continue;
+      for (const o of set) {
+        const top = o.fpos.y + o.fhy;
+        if (top > best && top <= hi && Math.abs(o.fpos.x - p.x) <= hx + o.fhx && Math.abs(o.fpos.z - p.z) <= hz + o.fhz) best = top;
+      }
+    }
+    return best;
+  }
+
+  // a ghost reaches what's under it: it stays there, with dust and a thud for the first few a frame
+  _ghostLand(rec) {
+    const sp = -rec.gvel.y;
+    this._park(rec, rec.gpos, rec.gquat);
+    rec.landed = true;
+    if (this.landFx > 0 && sp > 8) {
+      this.landFx--;
+      const k = Math.cbrt(Math.max(1, rec.scale.x * rec.scale.y * rec.scale.z * 0.8));
+      const p = _p.set(rec.fpos.x, rec.fpos.y - rec.fhy + 0.5, rec.fpos.z);
+      G.fx.dustRing(p, Math.min(14, 1.5 + k * 1.4), 4 + Math.round(k), 'dust', 0.55);
+      G.fx.pebbleBurst(p, Math.min(12, 3 + k * 2), _v.set(0, sp * 0.25, 0), rec.color, 1.5);
+      G.fightCam && G.fightCam.addTraumaAt(p, Math.min(0.2, 0.03 + k * 0.02), 300);
+      if (k > 2.2) G.audio && G.audio.crumble(Math.min(1, k / 6), p);
+    }
+    this._bruise(rec, 0.25);
+  }
+
+  // ---------- support ----------
+  // Parked rubble stays where it came to rest. If what it rested on has since gone (the storey
+  // under a floor plate, the wall a slab leaned on), it falls again: a few checks each frame.
+  _sweep() {
+    const L = this.frozenList;
+    for (let k = Math.min(SWEEP, L.length); k > 0 && L.length; k--) {
+      if (this.sweepI >= L.length) this.sweepI = 0;
+      const rec = L[this.sweepI];
+      if (this._supported(rec)) { this.sweepI++; continue; }
+      if (this.ghosts.length >= MAX_GHOSTS) return;
+      this._unpark(rec); // (the list's last piece now sits at this index: it's looked at next)
+      this._ghost(rec, rec.fpos, rec.fquat, _v.set(rand(-0.4, 0.4), -1, rand(-0.4, 0.4)), randomUnit(_w).multiplyScalar(rand(0.2, 0.9)));
+    }
+  }
+
+  _supported(rec) {
+    const p = rec.fpos, hx = rec.fhx, hy = rec.fhy, hz = rec.fhz, bottom = p.y - hy;
+    if (bottom - G.ground.heightAt(p.x, p.z) < 1.2) return true;
+    // a standing chunk it touches, level with it or under it
+    const S = G.destruction, pad = 0.7;
+    let ok = false;
+    S.forChunksInSphere(p, Math.hypot(hx, hy, hz) + pad, (id) => {
+      if (ok) return;
+      const d = S.defs[id];
+      if (d.c.y > p.y + 0.3) return;
+      if (Math.abs(d.c.x - p.x) <= d.size.x / 2 + hx + pad && Math.abs(d.c.y - p.y) <= d.size.y / 2 + hy + pad && Math.abs(d.c.z - p.z) <= d.size.z / 2 + hz + pad) ok = true;
+    });
+    if (ok) return true;
+    // other rubble right under it
+    const i0 = Math.floor((p.x - hx - HASH) / HASH), i1 = Math.floor((p.x + hx + HASH) / HASH);
+    const j0 = Math.floor((p.z - hz - HASH) / HASH), j1 = Math.floor((p.z + hz + HASH) / HASH);
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const set = this.rubbleHash.get(i * 73856093 ^ j * 19349663);
+      if (!set) continue;
+      for (const o of set) {
+        if (o === rec || o.fpos.y >= p.y) continue;
+        if (bottom - (o.fpos.y + o.fhy) < 0.9 && Math.abs(o.fpos.x - p.x) <= hx + o.fhx + 0.4 && Math.abs(o.fpos.z - p.z) <= hz + o.fhz + 0.4) return true;
+      }
+    }
+    return false;
+  }
+
   _kill(rec) {
     if (rec.dead) return;
     this._removeBody(rec);
-    if (rec.frozen) {
-      const set = this.rubbleHash.get(rec.hashKey);
-      if (set) set.delete(rec);
+    this._unpark(rec);
+    if (rec.ghost) {
+      rec.ghost = false;
+      const i = this.ghosts.indexOf(rec);
+      if (i >= 0) { this.ghosts[i] = this.ghosts[this.ghosts.length - 1]; this.ghosts.pop(); }
     }
     rec.dead = true;
     const sh = this.shapes[rec.shape];
@@ -539,6 +738,7 @@ export class DebrisSystem {
       const lsp = asleep ? 0 : speed2(b);
       const sp = asleep ? 0 : lsp + angSpeed2(b) * 0.5;
       rec.asleep = asleep; rec.lsp = lsp; rec.sp = sp;
+      rec.calmT = lsp <= 9 ? (rec.calmT || 0) + dt : 0;
       if (sp < 0.8) {
         rec.sleepT += dt;
         if (rec.sleepT > 0.45 && rec.age > 0.5) { this._freeze(rec); continue; }
@@ -558,6 +758,11 @@ export class DebrisSystem {
         _p.set(t.x, t.y, t.z); _q.set(r.x, r.y, r.z, r.w);
         this._setMatrix(rec, _p, _q);
       }
+    }
+    this.landFx = 3;
+    if (dt > 0) {
+      this._updateGhosts(dt);
+      this._sweep();
     }
     // upload just the instances that changed (frozen rubble doesn't move, so the span is short)
     for (const sh of this.shapes) {

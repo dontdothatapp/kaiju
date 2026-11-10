@@ -141,10 +141,15 @@ that:
 - the camera sits 90–150 m back at chest height, swinging round to a three-quarter view in close
   (from straight behind, a 47 m body hides the other one), pulling up and back when they're far
   apart, in the air or you're knocked flying, and dropping to a low angle in the street for the
-  supers. It never comes closer than 70 m to your kaiju, and it never dodges buildings: whatever
-  stands between the lens and either kaiju is cut away round him, a clean ink-rimmed pill fitted
-  to his outline on screen (`src/world/chunkMaterial.js`), and nothing within 22 m of the lens is
-  drawn at all;
+  supers. It never comes closer than 70 m to your kaiju. It picks the clearer shoulder: four
+  times a second it measures how many metres of standing building lie between each side's camera
+  and the two of them, swings round behind you to the other side when that one has clearly been
+  better for most of a second (and not again for five), and cranes up when both sides are walled
+  in. Whatever still stands between the lens and either kaiju is cut away round him, a clean
+  ink-rimmed pill fitted to his outline on screen (`src/world/chunkMaterial.js`), and nothing
+  within 22 m of the lens is drawn at all. The heading the shot is built on turns at a capped
+  rate, so when the two swap sides the camera orbits round instead of cutting through them;
+  position and aim follow on critically damped springs; a KO pushes in on the one going down;
 - hit sparks, shockwaves, craters, dust, the force field, the shadow frustum and sound falloff
   all scaled up to match.
 
@@ -337,7 +342,11 @@ viaduct spans).
   lands a surge rolls out down the street canyons. Collapse clouds have a smoke budget of their
   own, so the dust a tower makes can't thin out its own cloud;
 - the **rubble piles up** in the heightfield over the footprint in three goes, with painted
-  rubble and a film of dust on the streets around it.
+  rubble and a film of dust on the streets around it;
+- a **pall of dust** hangs over the site for a quarter of a minute after the surge has rolled
+  away, and the wreck **goes on smoking** for a minute or so: a column of black smoke leaning
+  downwind, small fires at its foot, embers going up with it, all dying down (`Destruction.smolderAt`;
+  the spot where a finisher's explosion went off smokes too). Up to seven wrecks smoke at once.
 
 **5. Progressive crumble** (`src/physics/debris.js`). Contact-force events, normalized by mass, break
 pieces on hard landings:
@@ -359,6 +368,14 @@ Settled pieces are **frozen into static rubble**: the body is removed but the in
 city accumulates real debris piles. Later shockwaves **re-wake** nearby frozen rubble through a
 spatial hash. Collapses may evict small in-flight shards (swapped for pebbles) to make room for the
 heavy pieces.
+
+Only pieces that have been slow for a while are parked to make room (a slab just let go, or at the
+top of its arc, is slow too: parking those left floor plates hanging in the sky after a tower had
+gone). A collapse piece that finds no room for a body **falls without one**: free fall and a
+tumble, down to the street or the top of whatever still stands under it, where it flops flat and
+stays; where rubble is already piled high it breaks up into pebbles and dust instead. And parked
+rubble is **checked for support**, a couple of dozen pieces a frame: one whose storey, wall or
+pile has since gone falls again the same way.
 
 **7. Ground**. A 280×280 deformable heightfield (mesh and Rapier collider share the data) takes:
 - craters: a bowl plus a raised lip;
@@ -392,6 +409,22 @@ Early playtesting showed the screen spending most of a fight buried in dust. The
   once and it settles back calmly. In free roam the beaten one only gets one within 260 m. The
   shadow pass doesn't see any of it.
 
+### Line work and grounding
+
+- **Ink outlines** on everything, not only the fighters (`src/render/post.js`). Where one thing
+  ends in front of another, the depth buffer steps. `1 / z` runs linearly across any flat surface
+  on screen whatever its angle, so its second difference is zero on a street or a wall seen
+  edge-on and jumps at a silhouette; scaled by `z²` that jump is the depth step in metres, and a
+  step big enough for its distance draws a line. It rides on the scene's MSAA resolve (five depth
+  taps, no extra pass), thins out into the fog, and fades under dust: the see-through smoke
+  layers leave their transmittance in the frame's alpha channel, so a building's outline isn't
+  drawn sharp on top of the cloud in front of it. High and medium quality.
+- **Grounding.** The foot of every building, and the rubble in the street, sits in a cooler,
+  darker band that fades out a few storeys up (the chunk shader), and the street canvas is painted
+  darker toward every footprint: the towers stand on the ground instead of floating on it.
+- Dust billows are round (320 faces) and thin out toward their outline, so a cloud reads as one
+  mass, not as a pile of balls; impact flashes are balls of light, bright at the heart.
+
 ### Weather and light
 
 A match is lit by one of four looks (`src/render/weather.js`): **Golden hour** (the default),
@@ -406,6 +439,7 @@ Random for a new one each match. One set of numbers per look drives:
 - **lit windows** after dark (the skyline glitters, even in the far filler blocks) and **fires** in
   the blown-out windows around impacts, cel flames with a hot core;
 - a rim light on the fighters, so they stand out from a dark city;
+- how heavy the ink outlines are (lighter at night), and where they fade into the fog;
 - the dust's colour, so a cloud doesn't glow at night;
 - **rain** (streaks in a box around the camera, animated on the GPU, with a rain bed in the mix)
   and **lightning**: a jagged, branching bolt into the skyline, the city flashing and thunder
@@ -580,8 +614,8 @@ skyscraper-ending haymaker stay proportional:
 | Channel | Implementation |
 |---|---|
 | Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text and flash run in real time. |
-| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh) and a directional kick spring, both played at 15% of the tuned amplitude (`SHAKE_SCALE`) so the fight stays readable, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a low-angle cinematic with letterbox for supers. |
-| Screen | Chromatic-aberration kick, radial zoom blur toward the impact, anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
+| Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh) and a directional kick spring, both played at 15% of the tuned amplitude (`SHAKE_SCALE`) so the fight stays readable, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a push-in on a KO, a low-angle cinematic with letterbox for supers. It follows on critically damped springs and keeps to the shoulder with the clearer view. |
+| Screen | Chromatic-aberration kick (growing toward the corners, so the middle of the frame stays sharp), radial zoom blur toward the impact (its taps jittered per pixel, so it streaks instead of ghosting), anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
 | Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
 | Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |
 | World | Tokusatsu spark bursts, impact stars, flash spheres, shockwave rings, beams, fireballs, cel-shaded smoke with inked rims, rubble, glass, craters and footprints, comic onomatopoeia and move names ("ATOMIC BREATH!"). |
@@ -652,7 +686,7 @@ The design leaned on these; full notes in the commit history.
 ```
 src/main.js                boot, main loop, test hooks
 src/core/                  context, time (hitstop/slow-mo), input (kb/mouse/pad), audio, math
-src/render/                renderer + sky + clouds, toon ramps + ink outlines, post FX stack (light shafts, grade), weather
+src/render/                renderer + sky + clouds, toon ramps + hull outlines, post FX stack (ink outlines, light shafts, grade), weather
 src/world/city.js          procedural downtown (blocks, setback towers) + outer filler city
 src/world/realCity.js      real-map buildings: footprints -> cells, party walls, setbacks, skyline, landmarks
 src/world/maps/            real map data (tools/extract-nyc-map.mjs)
@@ -661,7 +695,7 @@ src/world/chunkMaterial.js facade/fracture shader (parent-space patterns), the c
 src/world/ground.js        deformable heightfield, craters, footprints, painted streets, outer ground
 src/world/                 boundary (force field), props (parked cars), train (elevated viaduct), trees
 src/world/military.js      attack helicopters and tanks: stations, fire, getting swatted, searchlights
-src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, Voronoi library
+src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, body-less falls + support checks, Voronoi library
 src/fx/                    pebbles/glass/sparks, cel smoke, shockwaves, comic text, trails, beams (beam.js)
 src/fx/fx.js               effect recipes: hits, ground impacts, footfalls, pyrotechnics, fireballs, explosions, sword slashes
 src/game/character.js      the two kaiju rigs, pose library, walk cycle, glow, thrusters, sword
@@ -701,6 +735,11 @@ node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png
   and facades but no furniture.
 - Debris doesn't collide with *intact* neighbouring buildings until those buildings take damage
   (lazy collider refinement).
+- Pieces that fall without a physics body (a collapse that outruns the body budget, rubble whose
+  support has gone) pass through each other and through the rubble on the way down; they only
+  come to rest on the street, a standing chunk or a low pile.
+- The ink outlines follow silhouettes, not creases (there's no normal buffer), and aren't drawn
+  on low quality, which has no depth texture to read.
 - The robot doesn't combine from smaller vehicles at the round start; it just flies in.
 - The military's units aren't physics bodies: a wreck doesn't tumble or get kicked around, and
   shells and rockets pass through buildings on their way to the monster. There are no jets yet.

@@ -15,8 +15,8 @@ const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
 
 export const SMOKE_KINDS = {
-  dust: { lit: [0.8, 0.74, 0.64], shade: [0.47, 0.42, 0.42] },
-  cloud: { lit: [0.78, 0.74, 0.67], shade: [0.46, 0.43, 0.43] }, // pulverized concrete, a touch greyer
+  dust: { lit: [0.8, 0.74, 0.64], shade: [0.43, 0.38, 0.39] },
+  cloud: { lit: [0.78, 0.74, 0.67], shade: [0.41, 0.38, 0.4] }, // pulverized concrete, a touch greyer
 
   white: { lit: [1.0, 1.0, 1.0], shade: [0.72, 0.76, 0.86] },
   dark: { lit: [0.35, 0.33, 0.34], shade: [0.16, 0.15, 0.18] },
@@ -37,6 +37,14 @@ function smokeMaterial(translucent) {
     fog: true,
     transparent: translucent,
     depthWrite: !translucent,
+    // The see-through layers leave how much still shows through them in the frame's alpha channel
+    // (dst.a *= 1 - a): the ink outlines drawn afterwards (render/post.js) fade by it, so a
+    // building's outline isn't drawn sharp on top of the cloud in front of it.
+    ...(translucent ? {
+      blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+      blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+      blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+    } : {}),
     defines: translucent ? { TRANSLUCENT: 1 } : {},
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
@@ -103,7 +111,9 @@ function smokeMaterial(translucent) {
         vis *= segFade(vWP, cameraPosition, uFocusA, 24.0, 0.85);
         vis *= segFade(vWP, cameraPosition, uFocusB, 18.0, 0.85);
         #ifdef TRANSLUCENT
-          float alpha = 0.5 * vis * min(1.0, age * 12.0) * (1.0 - smoothstep(0.7, 0.98, rim));
+          // thick at the heart, thinning to nothing at the outline: billows that melt into each
+          // other (a hard-edged ball of even density reads as a bubble)
+          float alpha = 0.58 * vis * min(1.0, age * 12.0) * (1.0 - smoothstep(0.38, 0.97, rim));
           if (alpha < 0.01) discard;
         #else
           // opaque puffs clear out with a halftone dither, like the buildings do
@@ -137,14 +147,16 @@ function smokeMaterial(translucent) {
 }
 
 class SmokeLayer {
-  constructor(scene, capacity, translucent) {
+  constructor(scene, capacity, translucent, detail = 1) {
     this.cap = capacity;
     this.n = 0;
     const F = (k) => new Float32Array(capacity * k);
     this.pos = F(3); this.vel = F(3); this.s0 = F(1); this.s1 = F(1);
     this.age = F(1); this.life = F(1); this.drag = F(1); this.rise = F(1); this.seed = F(1); this.kind = new Uint8Array(capacity);
 
-    const geo = new THREE.IcosahedronGeometry(1, 1);
+    // detail 2 (320 faces): a round outline. At 80 faces the straight edges of each ball showed
+    // through the see-through layers as a lattice over a big cloud.
+    const geo = new THREE.IcosahedronGeometry(1, detail);
     this.aData = new THREE.InstancedBufferAttribute(F(4), 4).setUsage(THREE.DynamicDrawUsage);
     this.aLit = new THREE.InstancedBufferAttribute(F(3), 3).setUsage(THREE.DynamicDrawUsage);
     this.aShade = new THREE.InstancedBufferAttribute(F(3), 3).setUsage(THREE.DynamicDrawUsage);
@@ -220,12 +232,12 @@ class SmokeLayer {
 }
 
 export class SmokeSystem {
-  constructor(scene, capacity) {
-    this.solid = new SmokeLayer(scene, Math.floor(capacity * 0.35), false);
-    this.dust = new SmokeLayer(scene, Math.floor(capacity * 0.65), true);
+  constructor(scene, capacity, detail = 1) {
+    this.solid = new SmokeLayer(scene, Math.floor(capacity * 0.35), false, detail);
+    this.dust = new SmokeLayer(scene, Math.floor(capacity * 0.65), true, detail);
     // collapse clouds: a budget of their own, so a falling tower's cloud isn't thinned out by
     // the very dust it makes
-    this.cloud = new SmokeLayer(scene, Math.floor(capacity * 0.2), true);
+    this.cloud = new SmokeLayer(scene, Math.floor(capacity * 0.2), true, detail);
   }
 
   setFocus(a, b) { focus.uFocusA.value.copy(a); focus.uFocusB.value.copy(b); }

@@ -22,7 +22,7 @@ export class FX {
     this.glass = makeGlassSystem(scene, Math.floor(3500 * q));
     this.bloodSys = makeBloodSystem(scene, Math.floor(900 * q));
     this.sparks = new SparkSystem(scene, Math.floor(2500 * q));
-    this.smoke = new SmokeSystem(scene, Math.floor(2200 * q));
+    this.smoke = new SmokeSystem(scene, Math.floor(2200 * q), quality === 'low' ? 1 : 2);
     this.shock = new ShockSystem(scene);
     this.comicText = new ComicText(scene);
     this.beam = new BeamSystem(scene);
@@ -132,6 +132,31 @@ export class FX {
         this.smoke.spawn(c.x + dx * hw + dz * along * hw, c.y + rand(1, 3 + k), c.z + dz * hd + dx * along * hd,
           dx * sp + rand(-2, 2), rand(0, 1.5), dz * sp + rand(-2, 2), rand(3.5, 6) * (0.8 + k * 0.25), 2.3, rand(8, 12), 'cloud', 0.45, 0.2);
       }
+    }
+    // the last of it (share 1): a pall that hangs over the site long after the surge has rolled away
+    if (share >= 1) {
+      const pall = Math.round((5 + k * 3) * (0.5 + this.q * 0.5));
+      for (let i = 0; i < pall; i++) {
+        const a = rand(0, Math.PI * 2), d = rand(0.2, 1.3);
+        this.smoke.spawn(c.x + Math.cos(a) * hw * d, c.y + rand(4, 12 + k * 6), c.z + Math.sin(a) * hd * d,
+          Math.cos(a) * rand(1, 4), rand(0.5, 2), Math.sin(a) * rand(1, 4), rand(6, 9) * (0.8 + k * 0.2), 2.4, rand(14, 22), 'cloud', 0.9, 0.12);
+      }
+    }
+  }
+
+  // What a wreck does for the rest of the fight: a column of black smoke off the rubble, small
+  // fires at its foot and embers going up with it. k 0..1: how hard it still burns.
+  smolder(p, r, k) {
+    const a = rand(0, Math.PI * 2), d = Math.sqrt(Math.random()) * r;
+    const x = p.x + Math.cos(a) * d, z = p.z + Math.sin(a) * d;
+    const y = Math.max(p.y, G.ground ? G.ground.heightAt(x, z) : p.y) + rand(1, 4);
+    // (drag 0.45 and rise 5: it climbs at ~11 m/s, a hundred metres before it thins out, leaning downwind)
+    this.smoke.spawn(x, y, z, rand(1.5, 4), rand(4, 8), rand(0.5, 2.5), rand(3, 5) * (0.7 + 0.5 * k), 2.6, rand(7, 11), 'dark', 0.45, 5);
+    if (Math.random() < 0.45 * k) this.smoke.spawn(x, y, z, rand(-1, 1), rand(3, 6), rand(-1, 1), rand(1.6, 2.8), 1.9, rand(0.7, 1.3), 'hot', 1.6, 3);
+    if (Math.random() < 0.7 * k) {
+      _c.setRGB(1, rand(0.45, 0.75), rand(0.1, 0.25));
+      const n = 1 + Math.floor(Math.random() * 3 * this.q);
+      for (let i = 0; i < n; i++) this.sparks.spawn(x + rand(-2, 2), y + rand(0, 3), z + rand(-2, 2), rand(-3, 5), rand(8, 20), rand(-3, 4), rand(0.25, 0.5), 0.05, rand(1.2, 2.6), _c, 0.6, -3);
     }
   }
 
@@ -250,6 +275,7 @@ export class FX {
     G.props && G.props.explosion(pos, 80 * s, 20);
     G.military && G.military.blast(pos, 34 * s);
     G.destruction.impact({ pos, radius: 6 * s, power: 1, vel: _v.set(0, 10, 0), shatter: 50 * s, maxChunks: 30 });
+    if (s >= 1) G.destruction.smolderAt(_w.set(pos.x, G.ground.heightAt(pos.x, pos.z), pos.z), 7 * s, 22 + 8 * s);
     this.comic('boom', pos.clone().add(_w.set(0, 20 * s, 0)), 1.4 + s * 0.3);
     G.audio && G.audio.explosion(pos, s);
   }

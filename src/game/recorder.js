@@ -155,6 +155,21 @@ export class Recorder {
       makeBody.call(this, rec, pos, quat, vel, angvel);
       if (self.live) self.world.push([self.now, W.BODY, slot(rec), pos.x, pos.y, pos.z, quat.x, quat.y, quat.z, quat.w]);
     };
+    // pieces falling without a body (debris.js ghosts) play back like bodies: they start moving
+    // where they are, are sampled with the bodies (_moving), and stay where they land
+    const ghost = D._ghost;
+    D._ghost = function (rec, pos, quat, vel, angvel) {
+      ghost.call(this, rec, pos, quat, vel, angvel);
+      if (self.live) self.world.push([self.now, W.BODY, slot(rec), pos.x, pos.y, pos.z, quat.x, quat.y, quat.z, quat.w]);
+    };
+    const ghostLand = D._ghostLand;
+    D._ghostLand = function (rec) {
+      ghostLand.call(this, rec);
+      if (self.live) {
+        const p = rec.fpos, q = rec.fquat;
+        self.world.push([self.now, W.FREEZE, slot(rec), p.x, p.y, p.z, q.x, q.y, q.z, q.w]);
+      }
+    };
     const freeze = D._freeze;
     D._freeze = function (rec) {
       const had = !!rec.body;
@@ -229,7 +244,7 @@ export class Recorder {
     this.matchT0 = this.roundT0 = this.now;
     this.matchOn = true;
     const D = G.debris, P = G.props;
-    const active = new Set(D.active.map((r) => r.shape * SLOT + r.idx));
+    const active = new Set(D.active.concat(D.ghosts).map((r) => r.shape * SLOT + r.idx));
     this.base = {
       t: this.now,
       deb: D.shapes.map((sh, k) => {
@@ -328,8 +343,9 @@ export class Recorder {
   _moving(s, t) {
     const D = G.debris, P = G.props;
     // live debris bodies (their latest matrix, sleeping or not)
-    const deb = new Float32Array(D.active.length * 13);
-    D.active.forEach((rec, n) => {
+    const moving = D.ghosts.length ? D.active.concat(D.ghosts) : D.active;
+    const deb = new Float32Array(moving.length * 13);
+    moving.forEach((rec, n) => {
       const M = D.shapes[rec.shape].mesh.instanceMatrix.array, b = rec.idx * 16, o = n * 13;
       deb[o] = rec.shape * SLOT + rec.idx;
       for (let e = 0; e < 12; e++) deb[o + 1 + e] = M[b + AFFINE[e]];

@@ -1,6 +1,6 @@
 // Weather and time of day. One set of numbers drives the sun (or the moon), the sky, fog, clouds,
 // exposure, bloom, light shafts, the colour grade, lit windows, fires, the fighters' rim light,
-// rain and lightning. Each match picks one (Random, or what the title menu says), and the final
+// ink outlines, rain and lightning. Each match picks one (Random, or what the title menu says), and the final
 // round pushes it further: golden hour sinks toward dusk, dusk into the blue hour, the storm
 // gets worse, the night burns. Changes ease in over a few seconds, never cut.
 import * as THREE from 'three';
@@ -31,7 +31,7 @@ const golden = {
   lights: 0, lightColor: c(0xffd08a), fire: 0.35,
   shafts: 0.5, shaftColor: c(0xffd9a0),
   smoke: c(0xffffff), rimColor: c(0xffe6c4), rim: 0.2,
-  rain: 0, lightning: 0,
+  rain: 0, lightning: 0, ink: 0.8,
   final: { to: 'dusk', k: 0.6 },
 };
 const dusk = {
@@ -46,7 +46,7 @@ const dusk = {
   lights: 0.25, lightColor: c(0xffc070), fire: 0.65,
   shafts: 0.95, shaftColor: c(0xff9a58),
   smoke: c(0xffd2b8, 0.92), rimColor: c(0xff9a5a), rim: 0.45,
-  rain: 0, lightning: 0,
+  rain: 0, lightning: 0, ink: 0.8,
   final: { to: 'bluehour', k: 1 },
 };
 const storm = {
@@ -61,7 +61,7 @@ const storm = {
   lights: 0.16, lightColor: c(0xffd08a), fire: 0.5,
   shafts: 0, shaftColor: c(0xffffff),
   smoke: c(0x9da4b0), rimColor: c(0xc8dcff), rim: 0.35,
-  rain: 1, lightning: 1,
+  rain: 1, lightning: 1, ink: 0.7,
   final: { to: 'tempest', k: 1 },
 };
 const night = {
@@ -76,7 +76,7 @@ const night = {
   lights: 0.4, lightColor: c(0xffc878), fire: 1,
   shafts: 0.18, shaftColor: c(0x8fa8ff),
   smoke: c(0x5c6a8c), rimColor: c(0x8fb0ff), rim: 0.6,
-  rain: 0, lightning: 0,
+  rain: 0, lightning: 0, ink: 0.6, // (the night is dark already: lighter line work)
   final: { to: 'inferno', k: 1 },
 };
 export const WEATHERS = {
@@ -192,6 +192,8 @@ export class Weather {
     u.uSat.value = P.sat; u.uContrast.value = P.contrast;
     u.uShadowTint.value.copy(P.shadowTint); u.uHighTint.value.copy(P.highTint); u.uLift.value = P.lift;
     post.shafts = P.shafts; post.shaftColor.copy(P.shaftColor);
+    // ink outlines thin out where the fog takes over (render/post.js)
+    post.scenePass.setInk(P.ink, f.far * 0.28, f.far * 0.72);
     chunkUniforms.uLights.value = P.lights; chunkUniforms.uLightColor.value.copy(P.lightColor); chunkUniforms.uFire.value = P.fire;
     smokeLight.uTint.value.copy(P.smoke);
     rimLight.uRimColor.value.copy(P.rimColor); rimLight.uRim.value = P.rim;

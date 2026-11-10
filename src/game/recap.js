@@ -389,7 +389,7 @@ export class Recap {
     G.post.letterboxTarget = 1; G.post.speedTarget = 0; G.post.desatTarget = 0;
     const cam = G.camera;
     if (cam.view) cam.clearViewOffset();
-    cam.aspect = window.innerWidth / window.innerHeight;
+    cam.aspect = Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight);
     for (const f of G.fighters) { f.trailL.clear(); f.trailR.clear(); f.trailBody.clear(); }
     setTimeout(() => this.active && window.addEventListener('pointerdown', this._skip), 400);
     this.total = clips.reduce((s, c) => s + c.dur, 0);
@@ -597,7 +597,7 @@ export class Recap {
   // ---------------------------------------------------------------- shots
   _shot(g, prev) {
     const b = g.beat, T0 = g.ta, cam = this.cam;
-    const pk = clamp((0.95 - window.innerWidth / window.innerHeight) / 0.45, 0, 1);
+    const pk = clamp((0.95 - Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight)) / 0.45, 0, 1);
     const fov = (f) => f * (1 + 0.42 * pk); // portrait phones: a wider lens keeps the action in frame
     const vi = b.on >= 0 ? b.on : b.by >= 0 ? 1 - b.by : 1;
     const ai = b.by >= 0 ? b.by : 1 - vi;
