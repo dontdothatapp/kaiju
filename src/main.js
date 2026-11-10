@@ -93,7 +93,8 @@ async function boot() {
   G.game = new Game();
 
   window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+    // (a window with no size for a moment must not leave a NaN aspect behind)
+    camera.aspect = Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight);
     camera.updateProjectionMatrix();
     G.post.onResize(); // sizes the renderer and every pass at the current resolution scale
   });

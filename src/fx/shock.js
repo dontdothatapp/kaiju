@@ -30,8 +30,10 @@ const flashMat = () => new THREE.ShaderMaterial({
   fragmentShader: /* glsl */`
     uniform vec3 uColor; uniform float uAlpha; varying vec3 vN; varying vec3 vV;
     void main(){
-      float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
-      float a = pow(f, 1.5) * 1.2 + 0.25;
+      // brightest at the heart, gone at the edge: a ball of light. (Brightest at the rim, as it
+      // was, a hit drew a cluster of soap bubbles that whited the fighters out.)
+      float f = abs(dot(normalize(vN), normalize(vV)));
+      float a = pow(f, 2.2) * 1.15 + pow(f, 9.0) * 0.5;
       gl_FragColor = vec4(uColor * a * uAlpha, 1.0);
     }`,
 });

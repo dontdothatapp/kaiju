@@ -63,7 +63,7 @@ export function createScene(quality) {
   scene.add(sun);
   scene.add(sun.target);
 
-  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 3000);
+  const camera = new THREE.PerspectiveCamera(62, Math.max(1, window.innerWidth) / Math.max(1, window.innerHeight), 0.3, 3000);
   camera.position.set(0, 40, 80);
 
   const sky = createSky();

@@ -206,6 +206,7 @@ export class Ground {
     }
     if (layout.real) {
       paintRealMap(c, layout.map, (x, z) => this.toTex(x, z), s, true);
+      this._paintContact();
       this.texture.needsUpdate = true;
       return;
     }
@@ -260,7 +261,29 @@ export class Ground {
         }
       }
     }
+    this._paintContact();
     this.texture.needsUpdate = true;
+  }
+
+  // Contact shadow: the street darkens toward the foot of every building, so the towers stand
+  // on the ground instead of floating on it (and the lot under one that falls is left dark).
+  _paintContact() {
+    const S = G.destruction;
+    if (!S) return;
+    const c = this.ctx, s = this.texScale();
+    c.save();
+    c.fillStyle = 'rgba(24,26,44,0.34)';
+    c.shadowColor = 'rgba(16,18,36,0.6)';
+    c.shadowBlur = 4.5 * s;
+    for (const st of S.structs) {
+      if (st.kind !== 'building' || !st.mesh) continue;
+      const boxes = st.intactBoxes || [[st.min.x, 0, st.min.z, st.max.x, 0, st.max.z]];
+      for (const [x0, , z0, x1, , z1] of boxes) {
+        const [px, pz] = this.toTex(x0, z0);
+        c.fillRect(px, pz, (x1 - x0) * s, (z1 - z0) * s);
+      }
+    }
+    c.restore();
   }
 
   heightAt(x, z) {

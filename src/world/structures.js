@@ -82,6 +82,7 @@ export class Destruction {
     this.colliders = [];
     this.collapses = [];
     this.falls = [];       // dust, rubble and shaking for buildings on their way down
+    this.smolders = [];    // wrecks that go on smoking (smolderAt)
     this.crushBudget = 0;
     this.materials = chunkMaterials();
     this.material = this.materials.seeThrough; // what the debris draws with
@@ -304,6 +305,29 @@ export class Destruction {
       }
     });
     return hit;
+  }
+
+  // The top of the highest standing chunk straight under (x, y, z), or -Infinity: what a piece
+  // of rubble falling there comes down on (physics/debris.js, the pieces that fall without a body).
+  floorUnder(x, y, z) {
+    let best = -Infinity;
+    for (const s of this.structs) {
+      if (s.aliveCount === 0 || x < s.min.x || x > s.max.x || z < s.min.z || z > s.max.z || s.min.y > y) continue;
+      const ix = cellIndex(s.xs, x - s.origin.x), iz = cellIndex(s.zs, z - s.origin.z);
+      for (let ly = Math.min(s.ny - 1, Math.floor((y - s.origin.y) / s.sy)); ly >= 0; ly--) {
+        const id = s.cells[s.ci(ix, ly, iz)];
+        if (id < 0) continue;
+        const d = this.defs[id];
+        // (the chunk itself, not its cell: a facade panel is a thin strip of its cell, and a slab
+        // falling past it must not come to rest on its edge, sticking out of the wall)
+        if (!d.alive || Math.abs(x - d.c.x) > d.size.x / 2 || Math.abs(z - d.c.z) > d.size.z / 2) continue;
+        const top = d.c.y + d.size.y / 2;
+        if (top > y + 0.5) break; // the point is inside standing wall here: nothing to land on
+        if (top > best) best = top;
+        break;
+      }
+    }
+    return best;
   }
 
   // ---------- colliders ----------
@@ -897,9 +921,31 @@ export class Destruction {
           G.fx.collapseSurge(f.c, f.hw, f.hd, f.k, 1);
           G.fightCam && G.fightCam.addTraumaAt(f.c, 0.2 + f.k * 0.1, 450);
           G.audio && G.audio.crumble(1, f.c);
+          this.smolderAt(f.c, Math.min(f.hw, f.hd) * 0.8, 45 + 20 * f.k);
         }
       }
       if (f.step === 3 && f.t > f.topAt + 0.3) this.falls.splice(k, 1);
+    }
+    if (dt > 0) this._updateSmolders(dt);
+  }
+
+  // This spot goes on smoking for `life` seconds (a collapsed building, where a big explosion
+  // went off): black smoke, small fires and embers, dying down. The oldest make way for new ones.
+  smolderAt(pos, r, life = 60) {
+    for (const m of this.smolders) if (Math.hypot(m.p.x - pos.x, m.p.z - pos.z) < Math.max(r, m.r)) { m.t = Math.min(m.t, m.life * 0.2); return; }
+    if (this.smolders.length >= 7) this.smolders.shift();
+    this.smolders.push({ p: pos.clone(), r, t: 0, life, next: rand(0.2, 0.8) });
+  }
+
+  _updateSmolders(dt) {
+    for (let k = this.smolders.length - 1; k >= 0; k--) {
+      const m = this.smolders[k];
+      m.t += dt;
+      if (m.t >= m.life) { this.smolders.splice(k, 1); continue; }
+      if ((m.next -= dt) > 0) continue;
+      const burn = 1 - m.t / m.life;
+      m.next = rand(0.28, 0.5) / (0.35 + 0.65 * burn);
+      G.fx.smolder(m.p, m.r, burn);
     }
   }
 

@@ -319,6 +319,9 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
             ink *= 1.0 - dc * 0.6;
             gGlassEmit *= 1.0 - dc;
           }
+          // grounding: the foot of every building (and the rubble in the street) sits in the
+          // street's shade, cooler and darker, fading out a few storeys up
+          diffuseColor.rgb *= mix(vec3(0.72, 0.75, 0.86), vec3(1.0), smoothstep(-2.0, 17.0, vWPos.y));
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.05, 0.08), ink * 0.85);
           // the cutaway's edge, inked like the facade's own lines so it reads as drawn
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.05, 0.08), gCutRim * 0.9);
@@ -329,7 +332,7 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
         totalEmissiveRadiance += gGlassEmit * (1.0 - gCutRim);
       `);
   };
-  mat.customProgramCacheKey = () => 'chunk-v5' + (seeThrough ? '-see' : '') + (far ? '-far' : '');
+  mat.customProgramCacheKey = () => 'chunk-v6' + (seeThrough ? '-see' : '') + (far ? '-far' : '');
   return mat;
 }
 

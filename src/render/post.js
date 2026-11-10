@@ -1,4 +1,4 @@
-// Post stack: Scene (4x MSAA; the light shafts ride on its resolve) -> Bloom -> FX pass, which
+// Post stack: Scene (4x MSAA; the ink outlines and the light shafts ride on its resolve) -> Bloom -> FX pass, which
 // tone-maps, converts to sRGB and then grades in display space (one full-screen pass fewer than a
 // separate OutputPass). Only the scene pass multisamples: the later passes draw full-screen
 // quads, where MSAA changes no pixel but costs a resolve per pass.
@@ -21,6 +21,35 @@ const _cd = new THREE.Vector3();
 // Crepuscular rays (GPU Gems 3, ch. 13): march from each pixel toward the sun on screen and gather
 // open sky. The sky dome sits on the far plane, so the depth buffer says what's open: buildings,
 // the skyline and the clouds cut the light into shafts.
+// Ink outlines (the comic's line work, for everything that isn't a fighter with his own hull
+// outline): where one thing ends in front of another, the depth buffer steps. 1 / z runs linearly
+// across any flat surface on screen whatever its angle, so its second difference is zero on a
+// street or a wall seen edge-on and jumps at a silhouette: scaled by z squared that jump is the
+// depth step in metres, and a step big enough for its distance draws a line. Lines thin out into
+// the haze (uInkFade, set from the fog) and under dust: the scene's alpha channel is the dust's
+// transmittance (fx/smoke.js blends it that way), so a line fades with what it outlines.
+const inkUniforms = () => ({
+  uInk: { value: new THREE.Vector4(0.85, 0.3, 3000, 1) },   // strength, camera near, far, line offset (px)
+  uInkFade: { value: new THREE.Vector2(500, 1300) },
+  uInkColor: { value: new THREE.Color(0.05, 0.045, 0.075) },
+  uTexel: { value: new THREE.Vector2(1 / 1024, 1 / 768) },
+});
+const INK_GLSL = /* glsl */`
+  uniform vec4 uInk;
+  uniform vec2 uInkFade, uTexel;
+  uniform vec3 uInkColor;
+  float inkW(vec2 uv) { float d = texture2D(tDepth, uv).x; return (uInk.z - d * (uInk.z - uInk.y)) / (uInk.y * uInk.z); } // 1 / view depth
+  vec3 inked(vec3 col, float alpha, vec2 uv) {
+    if (uInk.x < 0.001) return col;
+    vec2 o = uTexel * uInk.w;
+    float wc = inkW(uv), w1 = inkW(uv + vec2(o.x, 0.0)), w2 = inkW(uv - vec2(o.x, 0.0)), w3 = inkW(uv + vec2(0.0, o.y)), w4 = inkW(uv - vec2(0.0, o.y));
+    float zmin = 1.0 / max(wc, max(max(w1, w2), max(w3, w4)));
+    float gap = (abs(w1 + w2 - 2.0 * wc) + abs(w3 + w4 - 2.0 * wc)) * zmin * zmin;
+    float thr = 0.9 + zmin * 0.022;
+    float ink = smoothstep(thr, thr * 2.4, gap) * (1.0 - smoothstep(uInkFade.x, uInkFade.y, zmin));
+    return mix(col, uInkColor, ink * uInk.x * clamp(alpha, 0.0, 1.0));
+  }`;
+
 const raysShader = (steps) => ({
   uniforms: {
     tDiffuse: { value: null },
@@ -29,6 +58,7 @@ const raysShader = (steps) => ({
     uStrength: { value: 0 },
     uColor: { value: new THREE.Color(1, 0.85, 0.6) },
     uAspect: { value: 1 },
+    ...inkUniforms(),
   },
   vertexShader: /* glsl */`
     varying vec2 vUv;
@@ -40,8 +70,10 @@ const raysShader = (steps) => ({
     uniform float uStrength, uAspect;
     uniform vec3 uColor;
     varying vec2 vUv;
+    ${INK_GLSL}
     void main() {
       vec4 base = texture2D(tDiffuse, vUv);
+      base = vec4(inked(base.rgb, base.a, vUv), 1.0);
       if (uStrength < 0.001) { gl_FragColor = base; return; }
       vec2 delta = (vUv - uSun) * (0.9 / float(STEPS));
       // start each pixel's march a little off-grid so the steps don't band
@@ -59,14 +91,20 @@ const raysShader = (steps) => ({
     }`,
 });
 
-// The resolved scene, texel for texel (texelFetch: no filtering, so the copy is exact).
+// The resolved scene, texel for texel (texelFetch: no filtering, so the copy is exact), inked.
 const copyShader = () => ({
-  uniforms: { tDiffuse: { value: null } },
+  uniforms: { tDiffuse: { value: null }, tDepth: { value: null }, ...inkUniforms() },
   vertexShader: /* glsl */`
-    void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    varying vec2 vUv;
+    void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
   fragmentShader: /* glsl */`
-    uniform sampler2D tDiffuse;
-    void main() { gl_FragColor = texelFetch(tDiffuse, ivec2(gl_FragCoord.xy), 0); }`,
+    uniform sampler2D tDiffuse, tDepth;
+    varying vec2 vUv;
+    ${INK_GLSL}
+    void main() {
+      vec4 base = texelFetch(tDiffuse, ivec2(gl_FragCoord.xy), 0);
+      gl_FragColor = vec4(inked(base.rgb, base.a, vUv), 1.0);
+    }`,
 });
 
 // Draws the scene into its own 4x multisampled target (with a depth texture for the light shafts),
@@ -85,6 +123,7 @@ class ScenePass extends Pass {
     this.msaaRT.depthTexture = new THREE.DepthTexture(w, h);
     this.copyMat = new THREE.ShaderMaterial(copyShader());
     this.copyMat.uniforms.tDiffuse.value = this.msaaRT.texture;
+    this.copyMat.uniforms.tDepth.value = this.msaaRT.depthTexture;
     this.raysMat = new THREE.ShaderMaterial(raysShader(raySteps));
     this.raysMat.uniforms.tDiffuse.value = this.msaaRT.texture;
     this.raysMat.uniforms.tDepth.value = this.msaaRT.depthTexture;
@@ -92,7 +131,24 @@ class ScenePass extends Pass {
     this.quad = new FullScreenQuad(this.copyMat);
   }
 
-  setSize(w, h) { if (this.msaaRT) this.msaaRT.setSize(w, h); }
+  setSize(w, h) {
+    if (!this.msaaRT) return;
+    this.msaaRT.setSize(w, h);
+    for (const m of [this.copyMat, this.raysMat]) {
+      m.uniforms.uTexel.value.set(1 / Math.max(1, w), 1 / Math.max(1, h));
+      m.uniforms.uInk.value.w = Math.max(1, h / 900); // the line keeps its weight as the buffer grows
+    }
+  }
+
+  // ink outlines: strength (0 off), and where they fade out into the haze (metres)
+  setInk(strength, fadeFrom, fadeTo) {
+    if (!this.msaaRT) return;
+    for (const m of [this.copyMat, this.raysMat]) {
+      const u = m.uniforms;
+      u.uInk.value.x = strength; u.uInk.value.y = this.camera.near; u.uInk.value.z = this.camera.far;
+      u.uInkFade.value.set(fadeFrom, fadeTo);
+    }
+  }
 
   render(renderer, writeBuffer) {
     const out = this.renderToScreen ? null : writeBuffer;
@@ -156,7 +212,8 @@ const FXShader = {
     float hash(float n) { return fract(sin(n) * 43758.5453); }
     float hash2(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
     vec3 sampleCA(vec2 uv) {
-      vec2 off = (uv - 0.5) * uCA * 0.025;
+      // colour fringes grow toward the corners (squared: the middle of the frame, where the fight is, stays sharp)
+      vec2 off = (uv - 0.5) * length(uv - 0.5) * uCA * 0.034;
       return vec3(texture2D(tDiffuse, uv + off).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - off).b);
     }
     void main() {
@@ -164,12 +221,15 @@ const FXShader = {
       vec3 col;
       vec2 dc = uv - uCenter;
       if (uZoom > 0.002) {
+        // radial blur toward the impact. Each pixel starts its taps a random fraction of a step
+        // in, so the ten copies of the picture melt into a streak instead of showing as ghosts.
         col = vec3(0.0);
         float tot = 0.0;
+        float jit = hash2(gl_FragCoord.xy + fract(uTime) * 17.0);
         for (int i = 0; i < 10; i++) {
-          float k = float(i) / 9.0;
+          float k = (float(i) + jit) / 10.0;
           float w = 1.0 - k * 0.6;
-          col += sampleCA(uCenter + dc * (1.0 - k * uZoom * 0.12)) * w;
+          col += sampleCA(uCenter + dc * (1.0 - k * uZoom * 0.085)) * w;
           tot += w;
         }
         col /= tot;
@@ -261,7 +321,7 @@ export class Post {
   }
 
   onResize() {
-    const w = window.innerWidth, h = window.innerHeight;
+    const w = Math.max(1, window.innerWidth), h = Math.max(1, window.innerHeight); // (never 0: the aspect below)
     const pr = basePixelRatio(this.quality) * this.scale;
     this.renderer.setPixelRatio(pr);
     this.renderer.setSize(w, h);
@@ -314,7 +374,7 @@ export class Post {
     this.speed = damp(this.speed, this.speedTarget, 8, realDt);
     this.letterbox = damp(this.letterbox, this.letterboxTarget, 5, realDt);
     this.desat = damp(this.desat, this.desatTarget, 4, realDt);
-    u.uCA.value = 0.08 + this.ca;
+    u.uCA.value = 0.05 + Math.min(this.ca, 0.8);
     u.uZoom.value = this.zoom;
     u.uFlash.value = this.flash;
     u.uRed.value = this.red;
