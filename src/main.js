@@ -18,7 +18,8 @@ import { buildTrack, setTrackLoop, Train } from './world/train.js';
 import { Boundary } from './world/boundary.js';
 import { Trees, parkTreeSpots } from './world/trees.js';
 import { Military } from './world/military.js';
-import { chunkUniforms, updateCutaway } from './world/chunkMaterial.js';
+import { chunkUniforms } from './world/chunkMaterial.js';
+import { updateSight } from './world/sightline.js';
 import { FX } from './fx/fx.js';
 import { FightCamera } from './game/camera.js';
 import { HUD } from './game/hud.js';
@@ -263,11 +264,11 @@ function simulate(realDt) {
     chunkUniforms.uFocus.value.set(0, -1e4, 0);
     chunkUniforms.uFocus2.value.set(0, -1e4, 0);
   }
-  // the cutaways through whatever stands in front of them (in free roam none round the beaten one
-  // far across the city); only the buildings in a cutaway (or hugging the camera) draw with the
-  // discard shader
-  updateCutaway(G.camera, fighting ? G.fighters : null, realDt, G.game.state === 'explore' ? 260 : Infinity);
-  G.destruction.updateMaterials(G.camera.position);
+  // the sightlines to both of them (in free roam none to the beaten one unless he's close: it
+  // isn't worth a street of buildings to see him lying across the city), and the buildings
+  // standing in one leave the picture
+  updateSight(G.camera, fighting ? G.fighters : null, realDt, G.game.state === 'explore' ? 130 : Infinity);
+  G.destruction.updateView(G.camera, realDt);
   followShadow(G.sun, fighting ? _v.copy(p.pos).lerp(b.pos, 0.4) : G.fightCam.look);
   G.audio.update(G.camera, G.time.scale, p.vel.length(), G.game.paused);
   G.hud.update(realDt);
@@ -281,7 +282,7 @@ function simulateRecap(realDt) {
   G.game.update(0, realDt);
   G.military && G.military.update(0, realDt); // (the recap poses its units; this only keeps the searchlights off)
   G.recap.update(realDt);
-  G.destruction.updateMaterials(G.camera.position);
+  G.destruction.updateView(G.camera, realDt);
   G.audio.update(G.camera, G.recap.speed, 0, false);
   G.hud.update(realDt);
   G.post.update(realDt, G.time.realTime);

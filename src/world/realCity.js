@@ -392,26 +392,31 @@ export function generateRealCity(D, scene, map, seed, quality) {
 
   const items = [];
   const styleOf = (b) => pickStyle(b, Math.round(b.h / F), rng);
+  // (g: the boxes of one building, which the camera hides together)
+  let group = 0;
   for (const b of list) {
     if (b.destructible || !b.grid.n) continue;
     const { i0, k0, w, h, mask } = b.grid;
     const rects = rectsOf(mask, w, h);
     const style = b.style ?? styleOf({ year: b.year, h: b.height });
     const color = new THREE.Color(b.color ?? rng.pick(PALETTES[style]));
+    group++;
     rects.forEach(([a, c, e, g], n) => items.push({
       x: (i0 + (a + e + 1) / 2) * C, z: (k0 + (c + g + 1) / 2) * C, w: (e - a + 1) * C, d: (g - c + 1) * C, h: b.height,
-      style, color, beacon: n === 0 && b.height > 85,
+      style, color, beacon: n === 0 && b.height > 85, g: group,
     }));
   }
   for (const [h, year, rects] of map.skyline) {
     const style = styleOf({ year, h });
     const color = new THREE.Color(rng.pick(PALETTES[style]));
+    group++;
     for (let i = 0; i < rects.length; i += 4) {
       const [x0, z0, x1, z1] = rects.slice(i, i + 4);
-      items.push({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, h, style, color, beacon: i === 0 && h > 85 });
+      items.push({ x: (x0 + x1) / 2, z: (z0 + z1) / 2, w: x1 - x0, d: z1 - z0, h, style, color, beacon: i === 0 && h > 85, g: group });
     }
   }
-  items.push(...empireState(map));
+  group++;
+  items.push(...empireState(map).map((it) => ({ ...it, g: group })));
   addSkylineMesh(scene, D, items, rng);
 
   // where the fighters land at the start of a round (the title camera orbits the player's spot),

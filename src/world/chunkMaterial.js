@@ -6,18 +6,11 @@ import * as THREE from 'three';
 import { gradientMap } from '../render/toon.js';
 
 export const STYLE = { GLASS: 0, OFFICE: 1, BRICK: 2, STRIP: 3, SLAB: 4, CONCRETE: 5 };
-const CUT_RIM = 0.005; // the cutaway's ink rim, in half screen heights (~2.5 px at 1080p)
 
 export const chunkUniforms = {
   uFocus: { value: new THREE.Vector3() },     // player's chest (the smoke's tunnel, fx/smoke.js)
   uFocus2: { value: new THREE.Vector3() },    // opponent's chest
-  uFadeDist: { value: 22.0 },                 // nothing of the city is drawn this close to the lens
-  // the cutaways (updateCutaway below): a pill on screen round each fighter, centre and half size
-  // (x scaled by the aspect), and how deep it cuts (view depth, m)
-  uCutA: { value: new THREE.Vector4(1e4, 1e4, 0, 0) },
-  uCutB: { value: new THREE.Vector4(1e4, 1e4, 0, 0) },
-  uCutZ: { value: new THREE.Vector2() },
-  uCutAspect: { value: 1 },
+  uFadeDist: { value: 22.0 },                 // no debris is drawn this close to the lens
   uTime: { value: 0 },
   // render/weather.js: share of windows lit from inside (dusk, night), their colour, and how
   // much the blown-out windows around an impact burn
@@ -26,18 +19,27 @@ export const chunkUniforms = {
   uFire: { value: 0.35 },
 };
 
-// Three variants of one shader, picked per mesh every frame (world/structures.js updateMaterials):
-//   seeThrough: the cut round the lens and the cutaways toward the fighters. They need `discard`,
-//               which switches off early depth rejection for the whole draw, so only the few
-//               buildings actually between the camera and a kaiju (and the debris) pay for it.
-//   plain:      everything else nearby: the full facade, no discard.
-//   far:        buildings a few hundred metres out: the facade without the crack, fire and
-//               spiderweb detail that would be sub-pixel there anyway.
-export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
+// Four variants of one shader. The city's meshes pick one every frame (world/structures.js
+// updateView), the debris always draws with its own:
+//   plain:  a building nearby: the full facade.
+//   far:    buildings a few hundred metres out: the facade without the crack, fire and spiderweb
+//           detail that would be sub-pixel there anyway.
+//   fade:   a building on its way out of (or back into) the picture because it stands between the
+//           lens and a kaiju. Each instance carries how much of it shows (aFade): 0 puts it off
+//           screen altogether; in between it goes out as alpha-to-coverage, the 4x MSAA's own
+//           samples, so the whole building thins evenly (what is behind it shows, its own back
+//           walls don't) and the depth the ink outlines read stays clean. Without MSAA (low
+//           quality: no ink there either) it is an ordered dither instead.
+//   debris: the rubble, which is never drawn within uFadeDist of the lens. That needs `discard`,
+//           which switches off early depth rejection for the draw, so only the debris pays for it.
+export function createChunkMaterial({ nearCut = false, far = false, fade = false, dither = false } = {}) {
   const mat = new THREE.MeshToonMaterial({ color: 0xffffff, gradientMap: gradientMap(3) });
   mat.defines = {};
-  if (seeThrough) mat.defines.SEE_THROUGH = 1;
+  if (nearCut) mat.defines.NEAR_CUT = 1;
   if (far) mat.defines.FAR = 1;
+  if (fade) mat.defines.FADE = 1;
+  if (fade && dither) mat.defines.FADE_DITHER = 1;
+  if (fade && !dither) mat.alphaToCoverage = true;
   mat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, chunkUniforms);
     shader.vertexShader = shader.vertexShader
@@ -56,14 +58,16 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
         varying vec3 vPN;
         varying vec3 vWPos;
         varying float vUp;
-        #ifdef SEE_THROUGH
-        varying vec4 vCutClip;
+        #ifdef FADE
+        attribute float aFade;
+        varying float vFade;
         #endif
       `)
       .replace('#include <project_vertex>', /* glsl */`
         #include <project_vertex>
-        #ifdef SEE_THROUGH
-        vCutClip = gl_Position;
+        #ifdef FADE
+        vFade = aFade;
+        if (aFade < 0.02) gl_Position = vec4(2.0, 2.0, 2.0, 1.0); // hidden: off the screen, no pixels to pay for
         #endif
       `)
       .replace('#include <begin_vertex>', /* glsl */`
@@ -83,10 +87,6 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
       .replace('#include <common>', /* glsl */`
         #include <common>
         uniform float uFadeDist;
-        uniform vec4 uCutA;
-        uniform vec4 uCutB;
-        uniform vec2 uCutZ;
-        uniform float uCutAspect;
         uniform float uTime;
         uniform float uLights;
         uniform vec3 uLightColor;
@@ -112,42 +112,21 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
           if (hit.w <= 0.0) return dmg;
           return dmg * (1.0 - smoothstep(0.3, 1.0, distance(q, hit.xyz) / hit.w));
         }
-        #ifdef SEE_THROUGH
-        varying vec4 vCutClip;
-        // signed distance to a cutaway pill (c: centre, half size), < 0 inside
-        float cutSd(vec2 s, vec4 c) {
-          float r = min(c.z, c.w);
-          vec2 q = abs(s - c.xy) - c.zw + r;
-          return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
-        }
-        // how far a fragment the cutaway (c, cut to depth zc) leaves standing is from its edge, on
-        // screen: outside the pill in front of him, or inside it just behind the depth it cuts to
-        // (px, pz: a pixel's worth of screen and of depth here). < 0: cut.
-        float cutEdge(vec2 s, float z, vec4 c, float zc, float px, float pz) {
-          float sd = cutSd(s, c);
-          return z < zc ? sd : sd < 0.0 ? (z - zc) / pz * px : 1.0;
-        }
+        #ifdef FADE
+        varying float vFade;
+        // 4x4 ordered dither threshold, 0 .. 15/16
+        float bayer2(vec2 a) { a = floor(a); return fract(a.x * 0.5 + a.y * a.y * 0.75); }
+        float bayer4(vec2 a) { return bayer2(0.5 * a) * 0.25 + bayer2(a); }
         #endif
         vec3 gGlassEmit = vec3(0.0);
-        float gCutRim = 0.0;
       `)
       .replace('void main() {', /* glsl */`
         void main() {
-          // --- the camera's cuts: nothing in the lens's face, and a clean hole in whatever stands
-          // in front of a fighter, rimmed in ink ---
-          #ifdef SEE_THROUGH
-          {
-            // screen position (x scaled by the aspect, so the pill's ends are round), view depth,
-            // and a pixel's worth of each
-            vec2 s = vCutClip.xy / vCutClip.w * vec2(uCutAspect, 1.0);
-            float z = vCutClip.w;
-            float px = max(fwidth(s.y), 1e-6), pz = max(fwidth(z), 1e-6);
-            if (distance(vWPos, cameraPosition) < uFadeDist) discard;
-            // only what is nearer the lens than the fighter (his chest's depth, his bulk behind it)
-            float e = min(cutEdge(s, z, uCutA, uCutZ.x, px, pz), cutEdge(s, z, uCutB, uCutZ.y, px, pz));
-            if (e < 0.0) discard;
-            gCutRim = 1.0 - smoothstep(${CUT_RIM}, ${CUT_RIM} + px, e);
-          }
+          #ifdef NEAR_CUT
+          if (distance(vWPos, cameraPosition) < uFadeDist) discard; // rubble in the lens's face
+          #endif
+          #ifdef FADE_DITHER
+          if (vFade <= bayer4(gl_FragCoord.xy)) discard;
           #endif
       `)
       .replace('#include <color_fragment>', /* glsl */`
@@ -323,122 +302,33 @@ export function createChunkMaterial({ seeThrough = true, far = false } = {}) {
           // street's shade, cooler and darker, fading out a few storeys up
           diffuseColor.rgb *= mix(vec3(0.72, 0.75, 0.86), vec3(1.0), smoothstep(-2.0, 17.0, vWPos.y));
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.05, 0.08), ink * 0.85);
-          // the cutaway's edge, inked like the facade's own lines so it reads as drawn
-          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.06, 0.05, 0.08), gCutRim * 0.9);
+          #if defined(FADE) && !defined(FADE_DITHER)
+          diffuseColor.a = vFade; // alpha to coverage: how many of the pixel's samples it keeps
+          #endif
         }
       `)
       .replace('#include <emissivemap_fragment>', /* glsl */`
         #include <emissivemap_fragment>
-        totalEmissiveRadiance += gGlassEmit * (1.0 - gCutRim);
+        totalEmissiveRadiance += gGlassEmit;
       `);
   };
-  mat.customProgramCacheKey = () => 'chunk-v6' + (seeThrough ? '-see' : '') + (far ? '-far' : '');
+  mat.customProgramCacheKey = () => 'chunk-v7' + (nearCut ? '-near' : '') + (far ? '-far' : '') + (fade ? (dither ? '-dither' : '-fade') : '');
   return mat;
 }
 
-// The three variants, made once and shared by every city mesh and all the debris.
+// The variants, made once and shared by every city mesh and all the debris. msaa: the scene is
+// drawn multisampled (every quality but low), so a fading building can use alpha to coverage.
 let _variants = null;
-export function chunkMaterials() {
+export function chunkMaterials(msaa = true) {
   if (!_variants) {
     _variants = {
-      seeThrough: createChunkMaterial({ seeThrough: true }),
-      plain: createChunkMaterial({ seeThrough: false }),
-      far: createChunkMaterial({ seeThrough: false, far: true }),
+      plain: createChunkMaterial(),
+      far: createChunkMaterial({ far: true }),
+      fade: createChunkMaterial({ fade: true, dither: !msaa }),
+      debris: createChunkMaterial({ nearCut: true }),
     };
   }
   return _variants;
-}
-
-// ---------- the cutaways ----------
-// Where a building stands between the camera and a kaiju, the part of it nearer the lens than he
-// is isn't drawn: a pill on screen round his outline (his joints, padded by his bulk), rimmed in
-// ink so it reads as a cutaway, not a glitch. It's measured every frame through the camera's own
-// matrices (the portrait view offset included), and kept in metres at his depth, so a cut or a
-// zoom doesn't read as him changing size. It opens over a fifth of a second when a building first
-// gets in the way (world/structures.js updateMaterials says so) and closes once none does.
-// The first three joints set how deep it cuts: an arm swung back mustn't bite the tower behind him.
-const CUT_JOINTS = ['chest', 'pelvis', 'head', 'handL', 'handR', 'ftL', 'ftR', 'tail5'];
-const CUT_PAD = 1.3;    // padding round each joint, in body radii
-const CUT_OPEN = 0.2;   // seconds to open or close
-// for updateMaterials: the volume each cutaway can reach (null: none), and whether a building is in it
-export const cutaway = { frusta: [null, null], blocked: [false, false] };
-const _holes = [0, 1].map(() => ({ k: 0, o: [0, 0, 0, 0], back: 0, cx: 0, cy: 0, dc: 0, fr: new THREE.Frustum() }));
-const _vp = new THREE.Matrix4(), _jw = new THREE.Vector3(), _jc = new THREE.Vector3(), _jq = new THREE.Vector3();
-const _raw = [0, 0, 0, 0];
-
-// fighters: [player, opponent] (or null: no cutaways). reach: no cutaway for a fighter further out
-// than this (free roam, where the beaten one lies somewhere across the city).
-export function updateCutaway(camera, fighters, dt, reach = Infinity) {
-  camera.updateMatrixWorld();
-  const m = _vp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse).elements;
-  const P = camera.projectionMatrix.elements, aspect = P[5] / P[0], U = chunkUniforms;
-  U.uCutAspect.value = aspect;
-  for (let i = 0; i < 2; i++) {
-    const h = _holes[i], f = fighters && fighters[i], u = (i ? U.uCutB : U.uCutA).value;
-    if (!f || !f.model.root.visible || !measureCut(h, f, m, aspect, P[5], dt)) {
-      h.k = 0; h.o.fill(0); h.back = 0;
-      u.set(1e4, 1e4, 0, 0);
-      cutaway.frusta[i] = null; cutaway.blocked[i] = false;
-      continue;
-    }
-    const near = h.dc < reach;
-    h.k = Math.min(1, Math.max(0, h.k + (near && cutaway.blocked[i] ? dt : -dt) / CUT_OPEN));
-    const s = P[5] / h.dc, o = h.o, e = h.k * h.k * (3 - 2 * h.k);
-    const hx = (o[0] + o[1]) * 0.5 * s, hy = (o[2] + o[3]) * 0.5 * s;
-    const cx = h.cx + (o[1] - o[0]) * 0.5 * s, cy = h.cy + (o[3] - o[2]) * 0.5 * s;
-    if (e > 0) u.set(cx, cy, hx * e, hy * e); else u.set(1e4, 1e4, 0, 0);
-    const z = h.dc + h.back;
-    U.uCutZ.value.setComponent(i, z);
-    // what it would cut fully open, rim included
-    const rx = hx + CUT_RIM + 0.01, ry = hy + CUT_RIM + 0.01;
-    cutaway.frusta[i] = near || e > 0 ? subFrustum(h.fr, m, (cx - rx) / aspect, (cx + rx) / aspect, cy - ry, cy + ry, z) : null;
-  }
-}
-
-// Fighter f on screen: his chest, and the pill round his joints as offsets from it in metres at the
-// chest's depth. A limb flung out widens it at once; it settles back in calmly. False: behind the lens.
-function measureCut(h, f, m, aspect, p5, dt) {
-  const J = f.model.J, c = toScreen(m, J.chest.getWorldPosition(_jw), aspect, _jc);
-  if (c.z < 2) return false;
-  const pad = f.R * CUT_PAD;
-  let x0 = c.x, x1 = c.x, y0 = c.y, y1 = c.y, back = 0;
-  for (let n = 0; n < CUT_JOINTS.length; n++) {
-    const q = toScreen(m, J[CUT_JOINTS[n]].getWorldPosition(_jw), aspect, _jq);
-    if (q.z < 1) continue;
-    const r = pad * p5 / q.z;
-    x0 = Math.min(x0, q.x - r); x1 = Math.max(x1, q.x + r);
-    y0 = Math.min(y0, q.y - r); y1 = Math.max(y1, q.y + r);
-    if (n < 3) back = Math.max(back, q.z - c.z);
-  }
-  const mm = c.z / p5, k = 1 - Math.exp(-4 * dt);
-  _raw[0] = (c.x - x0) * mm; _raw[1] = (x1 - c.x) * mm; _raw[2] = (c.y - y0) * mm; _raw[3] = (y1 - c.y) * mm;
-  for (let n = 0; n < 4; n++) h.o[n] = Math.max(_raw[n], h.o[n] + (_raw[n] - h.o[n]) * k);
-  back += f.R * 0.25;
-  h.back = Math.max(back, h.back + (back - h.back) * k);
-  h.cx = c.x; h.cy = c.y; h.dc = c.z;
-  return true;
-}
-
-// a world point through view-projection m: x, y on screen (x scaled by the aspect), z its view depth
-function toScreen(m, p, aspect, out) {
-  const w = m[3] * p.x + m[7] * p.y + m[11] * p.z + m[15];
-  return out.set((m[0] * p.x + m[4] * p.y + m[8] * p.z + m[12]) / w * aspect, (m[1] * p.x + m[5] * p.y + m[9] * p.z + m[13]) / w, w);
-}
-
-// The part of the view through the screen rectangle x0..x1, y0..y1 (NDC) nearer than depth z.
-function subFrustum(fr, m, x0, x1, y0, y1, z) {
-  const P = fr.planes;
-  clipPlane(P[0], m, 1, 0, -x0, 0);
-  clipPlane(P[1], m, -1, 0, x1, 0);
-  clipPlane(P[2], m, 0, 1, -y0, 0);
-  clipPlane(P[3], m, 0, -1, y1, 0);
-  clipPlane(P[4], m, 0, 0, 1, -0.1);
-  clipPlane(P[5], m, 0, 0, -1, z);
-  return fr;
-}
-// the clip-space half-space a*x + b*y + c*w + d >= 0 as a world plane (w is the view depth)
-function clipPlane(pl, m, a, b, c, d) {
-  pl.setComponents(a * m[0] + b * m[1] + c * m[3], a * m[4] + b * m[5] + c * m[7], a * m[8] + b * m[9] + c * m[11], a * m[12] + b * m[13] + c * m[15] + d);
 }
 
 // Per-instance attribute bundle used by the static chunk mesh and every debris mesh.
