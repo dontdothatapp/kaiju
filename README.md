@@ -166,9 +166,39 @@ five-joint tail), so the pose blending, recorder and recap work for either.
 - One pose library with per-character overrides: GORRAX hunches, his combo is claw, claw, bite and
   tail whip, and his breath rears back before leaning in.
 - A **procedural walk** runs on top of whatever pose is playing: legs swing in the direction of
-  travel (forward, back or sideways), knees lift in the swing phase, feet stay flat, the body bobs
-  and rolls, arms swing against the legs, and the tail waves behind. It emits a **footfall** at
-  each step.
+  travel (forward, back or sideways), knees lift in the swing phase, feet stay flat, the body
+  rises over the standing leg and rolls, arms swing against the legs, and the tail waves behind.
+  It emits a **footfall** at each step.
+
+### Animation (`src/game/character.js`, `src/game/fighter.js`)
+
+Nothing is keyframed. A move is two or three poses, and everything between and around them is
+computed.
+- **Springs, not blends.** Every joint chases its pose on a damped spring. A wind-up eases in; a
+  strike whips out, carries a few degrees past its pose and settles; the head trails the chest,
+  and each tail segment is softer and later than the one before it, so the tail is left behind by
+  a turn and comes round after. Elbows, knees and the jaw are hinges with stops: no impulse or
+  overshoot bends one backwards.
+- **The blow lands on the frame that's held.** The strike pose goes out a few hundredths of a
+  second before the hit frames open, so the limb is at full reach when the hitstop freezes it. A
+  stomp's foot is on the street as the quake goes off, and the tail whip connects when the tail
+  crosses in front of him.
+- **Fists find their target.** Two-bone IK on the striking arm puts the fist on the other one's
+  head or chest (on his arms, if his guard is up), bending the elbow when he's closer than the arm
+  is long, and leaves it where it hit while he's knocked away from it. A grapple puts the hands on
+  his chest. The wind-up's lunge stops at arm's length instead of chest to chest.
+- **Reactions follow the blow.** Where it lands (head or body), which hand threw it and how hard
+  pick the pose and send an impulse through spine, head, arms, knees and tail; the whole body
+  rocks on its feet and shudders through the hitstop. A blocked hit drives the guard back into
+  him; a parried swing leaves the attacker reeling; a beam holds him leaning back and shaking.
+- **Feet.** The body rides its legs: the pelvis comes down or up so the lower sole is on the
+  street, in a walk, a lunge, or folded over a body blow. A strike plants both feet instead of
+  running on underneath it, and coming to a stop finishes the step.
+- **In the air and after.** A launched kaiju flails between two poses on loose springs and
+  corkscrews a little; he bounces off the street when he lands and his limbs slap down after him.
+  A leap draws him out tall, and the landing folds his knees by how hard he came down.
+- **At rest** he breathes, and his head turns to the other one before his body has (up at him
+  when he leaps, down at him when he's on his back).
 
 ### Movement and weight (`src/game/fighter.js`)
 
@@ -564,6 +594,17 @@ Footprints, roof heights, street centrelines, parks and borough boundaries come 
 - **Below 40 fps the physics took two substeps**, doubling its cost exactly when the frame was
   already late. Fix: one coarser step when the step itself is what's slow (it always covers the
   whole frame, so debris never falls in slow motion).
+- **The hitstop held the wrong frame.** The strike pose and the hit both started on the first hit
+  frame, so the freeze caught the fist about two-thirds of the way out; the flash, the star and
+  the sparks were frozen with the world on their brightest frame, and the white hit flash lasted
+  as long as the freeze, so the blow itself was a white shape. Fix: the swing starts early enough
+  to be at full reach, hit effects run in real time through the freeze, and the flash is a frame
+  or two.
+- **Poses that stuck.** A parried punch stayed out, and the kneel after a missed slam stayed on,
+  until the next move: he walked around like that. Fix: a stagger ends back in the guard.
+- **Hovering and sinking.** Only the hero landing lowered the body onto its legs; a deep stance
+  hovered up to 3 m over the street and the idle stood 1 m into it. Fix: the pelvis always follows
+  the lower sole.
 - **A smooth frame counter over a game in slow motion.** The GPU runs behind the JavaScript, and
   when it can't keep up the browser can keep calling `requestAnimationFrame` at full rate while
   finished frames queue up and reach the screen late. Fix: a fence after each drawn frame; with
@@ -613,11 +654,11 @@ skyscraper-ending haymaker stay proportional:
 
 | Channel | Implementation |
 |---|---|
-| Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text and flash run in real time. |
+| Hitstop | Tiered by hit and a little heavier than a human fighter's: ~6 frames for jabs, ~12 for heavies, 14–20 plus slow-mo for knockdowns and finishers. The world freezes; shake, text, sparks, flashes and rings run in real time, and the one who was hit shudders. |
 | Camera | Trauma-based shake (`trauma²` × Perlin noise, rotation-led, per Eiserloh) and a directional kick spring, both played at 15% of the tuned amplitude (`SHAKE_SCALE`) so the fight stays readable, FOV punch, every footfall felt by distance, a wider shot when you're knocked flying, a push-in on a KO, a low-angle cinematic with letterbox for supers. It follows on critically damped springs and keeps to the shoulder with the clearer view. |
 | Screen | Chromatic-aberration kick (growing toward the corners, so the middle of the frame stays sharp), radial zoom blur toward the impact (its taps jittered per pixel, so it streaks instead of ghosting), anime speed lines when running or diving, 2–3-frame **impact frames**, flashes, red damage vignette. |
 | Time | Slow-mo with eased recovery: KO, parry, charged hits, super finishers. Audio gets muffled and pitched down to match. |
-| Bodies | Anime **smear frames** (stretched striking arm), hit flash, squash and stretch with hitstop jitter, bruising shader as health drops, plates / emblem glowing as a beam charges. |
+| Bodies | Spring-driven poses with follow-through, fists that land by IK, reactions by where and how hard the blow lands, anime **smear frames** (stretched striking arm), a one- or two-frame white hit flash, squash and stretch, bruising shader as health drops, plates / emblem glowing as a beam charges. |
 | World | Tokusatsu spark bursts, impact stars, flash spheres, shockwave rings, beams, fireballs, cel-shaded smoke with inked rims, rubble, glass, craters and footprints, comic onomatopoeia and move names ("ATOMIC BREATH!"). |
 | UI | Lagging chip damage, shaking bars, super meter and beam gauge, combo counter with grades, the beam-clash tug-of-war bar, a burning health bar in a rage, property-damage counter (it climbs into the billions), toasts, speech bubbles, the rank stamp. |
 | Audio | Recorded punches with procedural sub thumps, footfall thuds, beam roar, explosions, voice shouts and roars, ElevenLabs effects for destruction; a metal soundtrack that ducks under big hits. |
@@ -698,7 +739,7 @@ src/world/military.js      attack helicopters and tanks: stations, fire, getting
 src/physics/               Rapier wrapper + warm-up, debris budget/freeze/crumble, body-less falls + support checks, Voronoi library
 src/fx/                    pebbles/glass/sparks, cel smoke, shockwaves, comic text, trails, beams (beam.js)
 src/fx/fx.js               effect recipes: hits, ground impacts, footfalls, pyrotechnics, fireballs, explosions, sword slashes
-src/game/character.js      the two kaiju rigs, pose library, walk cycle, glow, thrusters, sword
+src/game/character.js      the two kaiju rigs, pose library, joint springs, arm IK, walk cycle, glow, thrusters, sword
 src/game/fighter.js        kaiju state machine: walk / run / leap / slam, attacks, beam, grapple, supers, knockdowns
 src/game/moves.js          frame data, speeds, beam tuning, per-kaiju move variants
 src/game/                  AI, camera, juice, round opener (intro.js), touch controls, pad menus, tutorial, HUD, game flow
@@ -728,7 +769,8 @@ node tools/shot.mjs "http://localhost:5173/?fight&auto&norender&mute" /tmp/s.png
 ## Known limitations / next steps
 
 - The kaiju are primitive-built and procedurally animated, not skinned meshes; the walk cycle is
-  a layer on top of the poses, so feet can slide a little on turns.
+  a layer on top of the poses, so feet can slide a little on turns and through a lunge. Only the
+  arms have IK: a bite, a tail or a kick goes where its pose sends it.
 - Both voices are Bloodline's ElevenLabs sets: GORRAX's are pitched down, KAISER-OH's are a
   pilot's. Dedicated roar and servo recordings would sell the scale even better.
 - Interiors are empty apart from the floor slabs, so wading through a building shows its floors

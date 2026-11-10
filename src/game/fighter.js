@@ -23,12 +23,16 @@ const STANDING = new Set(['free', 'block', 'charge', 'attack', 'dash', 'beam', '
 // round openers (game/intro.js): kneeling in these the pelvis comes down with the legs (see update)
 const PLANTED = new Set(['landed', 'rise', 'intro']);
 const RISE = 0.8;    // seconds (at the normal pace) to stand up out of the hero landing
+const FLAT = Math.PI / 2 * 0.92; // on his back in the street (the tilt a launch ends at)
+const LEAD = 0.055;  // the strike pose goes out this long before the hit frames open, so the limb is at full reach as it lands
 const CHARGE = 46;   // GORRAX charging in to his mark (a touch faster than a run)
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const _a = new THREE.Vector3(); // (_aimPoint's own: it runs in the middle of _attack, which is using the others)
+const _a2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _q2 = new THREE.Quaternion();
 const _e = new THREE.Euler();
@@ -91,6 +95,10 @@ export class Fighter {
     this.running = false;
     this.spinYaw = 0;              // the tail whip's extra turn
     this.tilt = 0;                 // falling over backwards when launched
+    this.tiltV = 2.2;              // ... this fast (rad/s: a harder hit whips him over quicker)
+    this.roll = 0; this.rollV = 0; // ... corkscrewing a little as he goes
+    this.flailT = 0; this.flailB = false;
+    this.hop = 0; this.hopV = 0;   // a hard landing bounces the body off the street (m, m/s)
     this.grab = null;
     this.ko = false;
     this.lastSmashStruct = -1;
@@ -146,7 +154,7 @@ export class Fighter {
     this.pos.copy(pos);
     this.vel.set(0, 0, 0);
     this.state = 'free'; this.stateT = 0; this.move = null;
-    this.grab = null; this.spinYaw = 0; this.tilt = 0;
+    this.grab = null; this.spinYaw = 0; this.tilt = 0; this.roll = 0; this.rollV = 0; this.hop = 0; this.hopV = 0;
     this.faceTo = null; this.goal = null; this.flight = null; this.crouch = 0; this.running = false;
     this.model.setAction(null, 30);
     this.model.glow = 0; this.model.thrust = 0;
@@ -205,13 +213,38 @@ export class Fighter {
       if (this.rage) this._rageFx(dt);
     }
     this._orient(dt, realDt);
-    this.model.root.position.copy(this.pos);
+    const M = this.model;
+    M.root.position.copy(this.pos);
     const standing = this.grounded && STANDING.has(this.state);
-    this.model.update(dt, realDt, this.vel, frozen, standing);
-    // down on one knee (the hero landing, standing up out of it): the body comes down with the
-    // legs, so the knee is on the street instead of hovering over it; eased back out otherwise
-    this.crouch = PLANTED.has(this.state) && this.grounded ? this.model.legDrop() * this.S : damp(this.crouch, 0, 8, dt);
-    this.model.root.position.y -= this.crouch;
+    M.heading = this.yaw + this.spinYaw;
+    this._look(standing);
+    M.update(dt, realDt, this.vel, frozen, standing);
+    // The body rides its legs: whatever they're doing (a deep stance winding up, folding over a
+    // body blow, down on one knee out of the hero landing) the pelvis comes down or up with them,
+    // so the lower sole or knee is on the street instead of hovering over it or sunk into it.
+    const drop = standing ? M.legDrop() * this.S : 0;
+    this.crouch = PLANTED.has(this.state) && this.grounded ? Math.max(0, drop) : damp(this.crouch, drop, 16, dt);
+    M.root.position.y -= this.crouch;
+    // a hard landing bounces him off the street (the body only: he's down where he fell)
+    if (this.hop > 0 || this.hopV > 0) {
+      if (this.state !== 'down' && this.state !== 'ko') this.hop = this.hopV = 0;
+      else if (!frozen) {
+        this.hopV -= 62 * dt;
+        this.hop += this.hopV * dt;
+        if (this.hop <= 0) {
+          this.hop = 0;
+          if (this.hopV < -7) {
+            this.hopV *= -0.4;
+            G.fx.dustRing(_v.copy(this.pos).setY(this.floorY - this.hipH), 16, 8, 'dust', 0.8);
+            M.hitSquash(UP, 0.4);
+            G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.12, 300);
+          } else this.hopV = 0;
+        }
+      }
+      M.root.position.y += this.hop;
+    }
+    M.applyRoot(this.hipH - this.crouch, standing, frozen);
+    M.reach(dt);
     this.kin.setNextKinematicTranslation({ x: this.pos.x, y: this.pos.y + this.H * 0.12, z: this.pos.z });
     this._trails();
     // inputs pressed during hitstop stay queued until the world unfreezes
@@ -260,7 +293,11 @@ export class Fighter {
       case 'block': this._block(dt); break;
       case 'beam': this._beam(dt); break;
       case 'hitstun': this._hitstun(dt); break;
-      case 'stagger': if (this.stateT > this.staggerT) this.setState('free'); this._friction(dt, 5); break;
+      case 'stagger':
+        // (back to his guard as it ends: a parried punch or a missed slam's kneel used to stay on him)
+        if (this.stateT > this.staggerT) { this.setState('free'); this.model.setAction(null, 8); }
+        this._friction(dt, 5);
+        break;
       case 'launched': this._launched(dt); break;
       case 'down': this._down(dt); break;
       case 'getup': this._getup(dt); break;
@@ -441,7 +478,7 @@ export class Fighter {
 
   _dash(dt) {
     this._friction(dt, 2.4);
-    if (this.stateT > 0.34 && this.grounded) { this.setState('free'); this.model.thrust = 0; }
+    if (this.stateT > 0.34 && this.grounded) { this.setState('free'); this.model.thrust = 0; this._landKick(0.45); }
   }
 
   // ---------------------------------------------------------------- leaping
@@ -453,6 +490,11 @@ export class Fighter {
     this.vel.z = this.vel.z * 0.7 + c.move.z * 10;
     this.vel.y = SPEED.jump * (this.def.rig === 'mech' ? 1.05 : 0.95);
     this.grounded = false;
+    // he's drawn out tall as he leaves the street, the arms thrown down behind him
+    const M = this.model;
+    M.setAction(null, 14);
+    M.stretch = 0.9;
+    M.kick('shL', 6, 0, 1.5); M.kick('shR', 6, 0, -1.5); M.kick('head', -2.5); M.kick('tail1', -5); M.kick('tail2', -4);
     const gp = _p.copy(this.pos).setY(this.floorY - this.hipH);
     G.fx.dustRing(gp, 22, 14);
     G.fx.shock.ring(gp.clone().setY(gp.y + 1), null, 40, 0xfff0d0, 0.5, 0.1, 0.7);
@@ -477,6 +519,7 @@ export class Fighter {
   // the slam: straight at him from above, committed on the way in
   dive() {
     this.setState('dive');
+    this.model.setAction(null, 22);
     const to = this.opp && !this.exploring ? this.opp.hurtCenter(_w).sub(this.pos).normalize() : this.aimDir(_w).setY(-0.8).normalize();
     this.vel.copy(to).multiplyScalar(SPEED.dive * 0.55);
     this.vel.y = Math.min(this.vel.y, -12);
@@ -519,12 +562,14 @@ export class Fighter {
     // the lunge misses (charged moves shout on release, grabs when they connect)
     const line = SHOUTS[name];
     if (line) this.shout(line[0], { odds: line[1], ...(name === 'superRush' ? { duck: 0.45, hold: 1.1 } : {}) });
-    this.move = { name, def: m, ...extra };
+    const flat = name === 'tackle' || name === 'diveSlam'; // one pose, already moving
+    this.move = { name, def: m, lead: flat ? 0 : Math.min(m.lead ?? LEAD, m.startup * 0.6), ...extra };
     this.moveT = 0;
     this.moveHit = false;
     this.moveWhiffed = false;
     this.setState('attack');
-    this.model.setAction(m.pose[0], name === 'tackle' || name === 'diveSlam' ? 40 : 16);
+    // the wind-up eases in; a quick move's a little faster, so there's something of it to see
+    this.model.setAction(m.pose[0], flat ? 40 : clamp(2.8 / m.startup, 16, 24));
     if (m.side === 'L') this.trailL.emitting = true; else this.trailR.emitting = true;
     G.audio && G.audio.swing(m.fx, this.pos);
     if (name === 'tackle') this.yaw = Math.atan2(this.vel.x, this.vel.z);
@@ -546,13 +591,24 @@ export class Fighter {
     const toOpp = this.aimDir(_w);
     const dist = o && !this.exploring ? this.flatDist(o) : 999;
     const tackle = mv.name === 'tackle';
+    if (!mv.struck && t >= m.startup - (mv.lead || 0)) this._strike(mv, m);
+    // feet planted from the swing until he starts to recover (a tackle keeps running)
+    if (mv.struck && !tackle && t < m.startup + m.active + m.recovery * 0.4) this.model.brace = 1;
+    this._aim(mv, m);
+    // The tail whip's turn starts with the swing, eases in and out and is done as the hit frames
+    // end; it connects as the tail comes across the front of him (_tryHit), not on a timer.
+    if (m.spin && mv.struck) {
+      const t0 = m.startup - (mv.lead || 0), k = clamp((t - t0) / (m.startup + m.active * 0.85 - t0), 0, 1);
+      this.spinYaw = k >= 1 ? 0 : Math.PI * 2 * k * k * (3 - 2 * k);
+    }
     if (t < m.startup) {
       // lunge-homing: close the gap during the wind-up (a tackle keeps its run instead)
       if (tackle) {
         _v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(SPEED.run);
       } else {
+        // closes to arm's length: a fist's reach for a blow (`stand`, moves.js), right up to him for a grab
         const lunge = this._moveVal('lunge');
-        const want = clamp(dist - (this.R + (o ? o.R : 8) + 4), 0, lunge);
+        const want = clamp(dist - (this.R + (o ? o.R : 8) + (m.stand ?? 8)), 0, lunge);
         const remaining = Math.max(0.016, m.startup - t);
         _v.copy(toOpp).multiplyScalar(this.exploring ? lunge * 0.4 / m.startup : want / remaining);
       }
@@ -562,11 +618,8 @@ export class Fighter {
     } else if (t < m.startup + m.active) {
       if (!mv.started) {
         mv.started = true;
-        this.model.setAction(m.pose[1], 60);
-        if (m.side) this.model.smear(m.side, 1);
         if (m.quake) this._quake(m);
       }
-      if (m.spin) this.spinYaw = Math.PI * 2 * clamp((t - m.startup) / m.active, 0, 1);
       if (tackle) {
         _v.set(Math.sin(this.yaw), 0, Math.cos(this.yaw)).multiplyScalar(SPEED.run * 1.15);
         this.vel.x = _v.x; this.vel.z = _v.z;
@@ -596,6 +649,49 @@ export class Fighter {
     }
   }
 
+  // The swing itself: the strike pose whips out (a smear frame on the arm) and his weight goes
+  // in behind it. It starts `lead` before the hit frames, so the blow lands at full reach.
+  _strike(mv, m) {
+    mv.struck = true;
+    const M = this.model;
+    if (m.pose[1] !== m.pose[0]) M.setAction(m.pose[1], 60);
+    if (m.side) M.smear(m.side, 1);
+    const k = clamp(m.fx + (m.fxCharge || 0) * (mv.charge || 0), 0.3, 1.6);
+    if (m.limb === 'foot') { M.sway(0.9); M.kick('spine', 3); M.kick('head', 3); } // a stomp: the body drops onto the foot
+    else if (m.limb && !m.spin) M.sway(1 + k * 1.2, m.limb === 'L' ? -0.5 * k : m.limb === 'R' ? 0.5 * k : 0);
+    // fists and claws go for him, not for where the pose happens to point: his head, or his body
+    const o = this.opp;
+    if ((m.limb === 'L' || m.limb === 'R' || m.limb === 'both') && o && !this.exploring && this.flatDist(o) < m.range + 10 && Math.abs(o.pos.y - this.pos.y) < 30) {
+      mv.aim = m.limb === 'both' ? ['L', 'R'] : [m.limb];
+    }
+  }
+
+  // Where on him a blow lands, for the hand that throws it: the front of his head or of his chest
+  // (further out if his guard is up: it lands on his arms), a little to that hand's side.
+  _aimPoint(m, side, out) {
+    const o = this.opp, M = o.model, body = m.react === 'body' || o.state === 'block';
+    const part = body ? M.J.chest : M.J.head;
+    part.updateWorldMatrix(true, false);
+    part.localToWorld(out.set(0, body ? 0.14 : 0.07, 0.04));
+    const from = this.model.J['sh' + side].getWorldPosition(_a);
+    const r = (body ? (o.state === 'block' ? 0.36 : 0.26) : 0.13) * o.S;
+    out.addScaledVector(from.sub(out).normalize(), r);
+    if (m.limb === 'both') { const x = (side === 'L' ? 1 : -1) * 0.07 * this.S; out.x += Math.cos(this.yaw) * x; out.z -= Math.sin(this.yaw) * x; }
+    return out;
+  }
+
+  // While a blow is on its way the hand follows the spot (he's moving); once it has landed it
+  // stays where it hit while he's knocked away from it, then lets go.
+  _aim(mv, m) {
+    if (!mv.aim) return;
+    const M = this.model, rel = this.moveT - m.startup - m.active;
+    if (rel > (this.moveHit ? 0.05 : 0)) { M.unaim(); mv.aim = null; return; }
+    for (const side of mv.aim) {
+      if (!this.moveHit || !mv.aimed) M.aim(side, this._aimPoint(m, side, _a2), 0.75);
+    }
+    if (this.moveHit) mv.aimed = true;
+  }
+
   // Fists, feet and tails smash whatever building they pass through during the active frames.
   _limbSweep(m, mv) {
     if (!m.limb) return;
@@ -623,6 +719,8 @@ export class Fighter {
   _whiff() {
     // a big swing that misses still shoves the air: shockwave forward, windows blow out
     const m = this.move.def;
+    // ... and nothing stops it: he goes a step further over than he meant to
+    if (m.limb && m.limb !== 'foot' && !m.spin) { this.model.sway(0.5 + m.fx * 1.3); this.model.jolt(0.3 + m.fx * 0.3); }
     if (m.fx > 0.9 && !m.quake) {
       const d = this.aimDir(_u);
       _v.copy(this.pos).addScaledVector(d, this.R + 14).setY(this.pos.y + this.H * 0.15);
@@ -636,8 +734,9 @@ export class Fighter {
     const o = this.opp;
     const dy = Math.abs(o.pos.y - this.pos.y);
     if (dist > m.range + 1 || dy > (this.move.name === 'diveSlam' ? 45 : 30)) return;
-    // the tail whip only connects as the tail sweeps across the front of him
-    if (m.spin) { const k = (this.moveT - m.startup) / m.active; if (k < 0.3 || k > 0.8) return; }
+    // the tail whip only connects as the tail sweeps across the front of him (it starts behind
+    // him: half a turn puts it there)
+    if (m.spin && (this.spinYaw < 2.6 || this.spinYaw > 4.7)) return;
     if (o.invuln > 0 || o.state === 'down' || o.state === 'getup' || o.state === 'grabbed' || o.state === 'superVictim' || (o.ko && o.state !== 'launched')) return;
     // a grab can't catch him off his feet: a leap, a launch or a sidestep's hop takes him out of its hands
     if (m.grab && (o.state === 'jump' || o.state === 'dive' || o.state === 'launched' || o.state === 'dash' || o.pos.y - o.floorY > 6)) return;
@@ -667,6 +766,7 @@ export class Fighter {
     if (o.state === 'block') {
       o.setState('stagger'); o.staggerT = 0.45;
       o.vel.copy(dir).multiplyScalar(10);
+      o.flinch(dir, 0.8, { guard: true, pose: false, stop: 0 });
       o.takeDamage(1, this, false);
       G.hud && G.hud.flashText(o, 'BRACED!');
       return;
@@ -687,6 +787,8 @@ export class Fighter {
     this.vel.z = damp(this.vel.z, _v.z, 4, dt);
     this.model.setAction('chargeW', 10);
     this.model.glow = this.charge * 0.8;
+    // straining to hold it: the cocked arm trembles more the fuller the charge
+    if (Math.random() < 0.6) { this.model.kick('shR', rand(-1, 1) * 3.5 * this.charge, 0, rand(-1, 1) * 3 * this.charge); this.model.kick('elR', rand(-1, 1) * 7 * this.charge); }
     // gathering energy: sparks sucked into the fist, trembling, rising hum
     if (Math.random() < 0.7) {
       const h = this.model.handWorld('R', _p);
@@ -755,6 +857,7 @@ export class Fighter {
         this.beamT = 0;
         this.beamAim = this._beamTarget(new THREE.Vector3());
         M.setAction('beamS', 20);
+        M.sway(-2.6); M.jolt(0.6); M.kick('head', -3); // the kick of it
         G.audio && G.audio.chargeStop(this);
         G.audio && G.audio.beamStart(this);
         this.shout('charge_release', { duck: 0.25 });
@@ -777,6 +880,7 @@ export class Fighter {
     if (this.beamPh === 'fire') {
       this.beamT += dt;
       M.glow = 1.4;
+      if (Math.random() < 0.5) { M.jolt(0.35); M.kick('chest', rand(-1, 1) * 1.6, rand(-1, 1) * 1.2); M.kick('head', rand(-1, 1) * 2.2, rand(-1, 1) * 1.6); }
       // track him, slowly; left / right sweep it across the skyline
       const want = this._beamTarget(_w);
       const aim = this.beamAim;
@@ -874,8 +978,10 @@ export class Fighter {
     o.model.hitFlash(0.8);
     if (STANDING.has(o.state) && o.state !== 'hitstun') o.cancelActions();
     if (STANDING.has(o.state) || o.state === 'hitstun') {
+      // thrown back by the first of it, then held there shaking for as long as it pours onto him
+      const fresh = o.state !== 'hitstun';
       o.setState('hitstun'); o.stunT = 0.3;
-      o.model.setAction(chance(0.5) ? 'hitHigh' : 'hitBody', 40);
+      o.flinch(pushDir, fresh ? 0.8 : 0.3, { pose: fresh, stop: 0.02 });
     }
     o.vel.x = pushDir.x * 12; o.vel.z = pushDir.z * 12;
     G.fx.pyro(onHim, 0.6);
@@ -1073,7 +1179,7 @@ export class Fighter {
   // ran out of road, or straight past him: skids to a halt off balance, open to a punish
   _grabRunMiss(mv) {
     const m = mv.def;
-    mv.run = false; mv.started = true; mv.recover = true; mv.stumble = m.runStumble;
+    mv.run = false; mv.started = true; mv.struck = true; mv.recover = true; mv.stumble = m.runStumble;
     this.moveT = m.startup + m.active;
     this.moveWhiffed = true;
     this.running = false;
@@ -1092,6 +1198,8 @@ export class Fighter {
     this.grab = { phase: 'hold', t: 0, punches: 0, dir: null, isSuper, hits: 0 };
     this.model.setAction('hold', 30);
     o.model.setAction('dangle', 20);
+    o.model.jolt(0.9); o.model.kick('head', 7); o.model.kick('hipL', -4); o.model.kick('hipR', -4); o.model.kick('tail1', 5);
+    this.model.sway(-1.2);
     G.time.freeze(0.08);
     G.fightCam && G.fightCam.addTrauma(0.3);
     G.audio && G.audio.grab(this.pos);
@@ -1115,10 +1223,23 @@ export class Fighter {
     o.grounded = false;
   }
 
+  // Hands on him while he's held: each on the side of his chest nearer to it (the robot with
+  // both, the lizard with one claw), so he's carried by something and not by the air between them.
+  _grip(sides) {
+    const M = this.model, C = this.opp.model.J.chest;
+    C.updateWorldMatrix(true, false);
+    for (const s of sides) {
+      const sh = M.J['sh' + s].getWorldPosition(_a);
+      const a = C.localToWorld(_a2.set(0.2, 0.1, 0.02)), b = C.localToWorld(_p.set(-0.2, 0.1, 0.02));
+      M.aim(s, a.distanceToSquared(sh) < b.distanceToSquared(sh) ? a : b, 1.5);
+    }
+  }
+
   _grabbing(dt) {
     const g = this.grab;
     const o = this.opp;
     g.t += dt;
+    if (g.phase !== 'throw') this._grip(this.def.rig === 'mech' ? ['L', 'R'] : ['R']);
     if (g.phase === 'hold') {
       this._friction(dt, 10);
       this._holdVictim(3 + g.t * 10);
@@ -1143,6 +1264,8 @@ export class Fighter {
       if (g.t > 1.2 || this.ctrl.pressed('grab') || this.ctrl.pressed('heavy') || this.ctrl.pressed('light')) {
         g.phase = 'throw'; g.t = 0;
         this.model.setAction('throw', 50);
+        this.model.unaim();
+        this.model.sway(2.6);
         const dir = g.dir.clone(); dir.y += 0.45; dir.normalize();
         aimAtBuilding(o.pos, dir, 0.4);
         o.takeDamage(7 * this.power, this, false);
@@ -1203,7 +1326,7 @@ export class Fighter {
       const dir = f.clone();
       o.takeDamage(dmg * this.power, this, false);
       o.model.hitFlash(1); o.model.hitSquash(dir, 0.8);
-      o.model.setAction(g.punches % 2 ? 'hitHigh' : 'hitBody', 60);
+      o.flinch(dir, s, { high: g.punches % 2 === 1, side: g.punches % 2 ? -1 : 1, stop: 0.1 });
       G.fx.pyro(hc(), 1.1);
       G.fx.slash(hc(), dir, g.punches % 2 ? 1 : -1);
       juiceHit(hc(), dir, s, { hitstop: 0.1, sound: 'heavy', comic: 'slash', victimIsPlayer: o === G.player });
@@ -1247,6 +1370,7 @@ export class Fighter {
         G.audio && G.audio.chargeStop(this);
         M.setAction('cleaveS', 90);
         M.smear('R', 1);
+        M.sway(2.8);
         const dir = f.clone().setY(0.28).normalize();
         G.fx.slash(hc(), f.clone(), 0, true);
         o.takeDamage(16 * this.power, this, false);
@@ -1280,15 +1404,18 @@ export class Fighter {
         const side = g.punches % 2 ? 'R' : 'L';
         M.setAction(side === 'R' ? 'crossS' : 'jabS', 90);
         M.smear(side, 1);
+        M.unaim(side === 'R' ? 'L' : 'R');
+        this._grip([side]);
         const hp = o.hurtCenter(new THREE.Vector3()).add(_u.set(0, 6, 0));
         const dir = this.aimDir(new THREE.Vector3());
         o.takeDamage(1.8 * this.power, this, false);
         o.model.hitFlash(1); o.model.hitSquash(dir, 0.8);
-        o.model.setAction(g.punches % 2 ? 'hitHigh' : 'hitBody', 60);
+        o.flinch(dir, 0.7, { high: g.punches % 2 === 1, side: side === 'R' ? -1 : 1, stop: 0.045 });
         G.fx.pyro(hp, 0.6);
         juiceHit(hp, dir, 0.6, { hitstop: 0.045, sound: 'barrage', comic: g.punches % 3 === 0 ? 'light' : null, victimIsPlayer: o === G.player });
         if (g.punches >= 6) {
           g.phase = 'windup'; g.t = 0; M.setAction('beamW', 14);
+          M.unaim();
           G.time.slowmo(0.3, 0.6, 4);
           G.audio && G.audio.chargeStart(this);
           this.shout('super_finish', { duck: 0.3 });
@@ -1301,6 +1428,7 @@ export class Fighter {
       if (g.t > 0.7) {
         G.audio && G.audio.chargeStop(this);
         M.setAction('beamS', 90);
+        M.sway(-2.4); M.jolt(0.6);
         const dir = this.aimDir(new THREE.Vector3()).setY(0.3).normalize();
         const at = o.hurtCenter(new THREE.Vector3());
         o.takeDamage(16 * this.power, this, false);
@@ -1328,6 +1456,7 @@ export class Fighter {
     this.spinYaw = 0;
     this.model.glow = 0;
     this.model.thrust = 0;
+    this.model.unaim();
     this.trailL.emitting = false; this.trailR.emitting = false;
     if (this.grab) {
       if (this.grab.isSuper) G.post.letterboxTarget = 0;
@@ -1400,7 +1529,21 @@ export class Fighter {
     this.launchDamage = 0;
     this.lastSmashStruct = -1;
     this.tilt = 0;
-    this.model.setAction('tumble', 30);
+    // a harder hit whips him over quicker; he corkscrews a little, never the same way twice
+    this.tiltV = clamp(speed / 19, 1.8, 3.4);
+    this.roll = 0; this.rollV = rand(-1, 1) * 1.6;
+    this.flailT = rand(0.22, 0.34); this.flailB = false;
+    this.hop = this.hopV = 0;
+    // the body's thrown, the head and limbs are left behind for a moment and then follow
+    const M = this.model;
+    M.setAction('tumble', 30);
+    M.jolt(1);
+    M.kick('head', 8); M.kick('chest', 3);
+    M.kick('shL', -8, 0, 2); M.kick('shR', -8, 0, -2); M.kick('elL', 5); M.kick('elR', 5);
+    M.kick('hipL', -6); M.kick('hipR', -6); M.kick('knL', 4); M.kick('knR', 4);
+    M.kick('tail1', 6); M.kick('tail2', 5); M.kick('tail3', 4);
+    M.settle(0.035);
+    M.shudder(_v.set(dir.x, 0, dir.z).normalize(), clamp(0.5 + speed / 55, 0.6, 1.6), 0.3);
     this.lastHitBy = from;
     // face whoever did it while going over
     if (Math.hypot(dir.x, dir.z) > 0.2) this.yaw = Math.atan2(-dir.x, -dir.z);
@@ -1442,7 +1585,19 @@ export class Fighter {
 
   _launched(dt) {
     const sp = this.vel.length();
-    this.tilt = Math.min(1.45, this.tilt + dt * 2.2);
+    // going over backwards: quick at first, easing as he comes level
+    this.tilt = Math.min(FLAT, this.tilt + dt * this.tiltV * (1.15 - 0.65 * this.tilt / FLAT));
+    this.rollV += (-this.roll * 9 - this.rollV * 1.1) * dt;
+    this.roll = clamp(this.roll + this.rollV * dt, -0.5, 0.5);
+    // he flails: thrown open, curled up, thrown open (on loose springs, so the limbs trail and swing)
+    const M = this.model;
+    M.jolt(0.85);
+    this.flailT -= dt;
+    if (this.flailT <= 0) {
+      this.flailB = !this.flailB;
+      this.flailT = rand(0.26, 0.4);
+      M.setAction(this.flailB ? 'tumbleB' : 'tumble', 11);
+    }
     G.post && this === G.player && (G.post.speedTarget = clamp((sp - 30) / 50, 0, 0.8));
     // dust off him while flying fast
     const chaseCam = this === G.player && G.fightCam && G.fightCam.chase > 0.2;
@@ -1569,13 +1724,16 @@ export class Fighter {
         G.fx.groundImpact(gp.clone(), clamp(-vy * 1.6, 40, 80), { quiet: true });
         this.model.thrust = 0;
         this.setState('stagger'); this.staggerT = 0.18;
+        // the knees give and the body folds into it, by how hard he came down
+        this.model.blend('land', clamp(-vy / 42, 0.45, 1), 30);
+        this._landKick(clamp(-vy / 36, 0.4, 1.2));
       } else if (st === 'dive' || (st === 'attack' && this.move && this.move.name === 'diveSlam')) {
         // a slam that missed ends in the street: a crater, and a moment to get up
         G.fx.groundImpact(gp.clone(), clamp(-vy * 1.8 + 40, 70, 130));
         G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.6, 500);
         this.vel.set(0, 0, 0);
         this.model.thrust = 0;
-        if (st === 'dive') { this.setState('stagger'); this.staggerT = 0.6; this.model.setAction('heroLand', 20); }
+        if (st === 'dive') { this.setState('stagger'); this.staggerT = 0.6; this.model.setAction('heroLand', 26); this._landKick(1.2); }
       } else if (st === 'launched' || (st === 'ko' && vy < -3)) {
         // landing flat on his back: the street caves in under him
         const impactSp = this.vel.length();
@@ -1588,7 +1746,16 @@ export class Fighter {
         this.vel.x *= 0.55; this.vel.z *= 0.55;
         this.setState(this.ko ? 'ko' : 'down');
         if (this.ko) this.stateT = 0.21; // lie down (see `lying`) from now on
-        this.model.setAction('down', 14);
+        // he hits the street and bounces: the body off it once or twice, arms, legs and head thrown up
+        const M = this.model, k = clamp(impactSp / 40, 0.4, 1.3);
+        M.setAction('down', 22);
+        M.jolt(1);
+        M.hitSquash(UP, 0.5 + 0.4 * k);
+        M.kick('head', 7 * k); M.kick('chest', 3 * k);
+        M.kick('shL', -7 * k, 0, 3 * k); M.kick('shR', -7 * k, 0, -3 * k);
+        M.kick('hipL', -8 * k); M.kick('hipR', -8 * k); M.kick('knL', 6 * k); M.kick('knR', 6 * k);
+        M.kick('tail1', 7 * k); M.kick('tail2', 6 * k); M.kick('tail3', 5 * k);
+        this.hop = 0.01; this.hopV = clamp(impactSp * 0.45, 5, 22);
       }
       if (vy < -8 && STANDING.has(this.state)) G.fightCam && G.fightCam.addTraumaAt(this.pos, 0.12, 250);
       this.pos.y = this.state === 'down' || this.state === 'ko' ? gh + this.S * 0.26 : floor;
@@ -1624,6 +1791,8 @@ export class Fighter {
     p.y = gh;
     const run = this.running;
     const k = clamp(amount, 0.3, 1.2) * (run ? 1.4 : 1);
+    // each one goes up through him: the head nods, the tail bounces (more at a run)
+    this.model.kick('head', 1.1 * k); this.model.kick('chest', 0.5 * k); this.model.kick('tail2', 1.6 * k); this.model.kick('tail4', 2 * k);
     G.fx.footstep(p, k, this);
     if (G.fightCam) G.fightCam.addTraumaAt(p, (this === G.player ? 0.07 : 0.1) * k, 320);
     G.audio && G.audio.footstep(p, k, this.def.rig);
@@ -1656,16 +1825,18 @@ export class Fighter {
     const leanF = clamp(_w.z / 120, -0.12, 0.2), leanR = clamp(-_w.x / 120, -0.12, 0.12);
     _q.multiply(_q2.setFromEuler(_e.set(leanF, 0, leanR)));
     if (st === 'launched' || (st === 'ko' && this.stateT <= 0.2)) {
-      // going over backwards
-      _q.multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -this.tilt));
+      // going over backwards, corkscrewing a little
+      _q.multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -this.tilt)).multiply(_q2.setFromAxisAngle(UP, this.roll));
     }
     if (st === 'down' || st === 'ko' && this.stateT > 0.2) {
-      // flat on his back
-      _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -Math.PI / 2 * 0.92));
+      // flat on his back (the last of the way over and of the twist go as he lands, not in one frame)
+      this.tilt = damp(this.tilt, FLAT, 24, k);
+      this.roll = damp(this.roll, 0, 9, k);
+      _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -this.tilt)).multiply(_q2.setFromAxisAngle(UP, this.roll));
     }
     if (st === 'getup') {
       const t = clamp(this.stateT / GETUP, 0, 1);
-      _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -Math.PI / 2 * 0.92 * (1 - t) * (1 - t)));
+      _q.setFromAxisAngle(UP, this.yaw).multiply(_q2.setFromAxisAngle(_w.set(1, 0, 0), -FLAT * (1 - t) * (1 - t)));
     }
     if (st === 'dive' || (st === 'attack' && this.move && this.move.name === 'diveSlam')) {
       // pitched along the dive
@@ -1711,6 +1882,69 @@ export class Fighter {
     if (this.def.rig === 'beast') { G.audio && G.audio.roar(head); this.model.glow = 0.4; }
     else { this.shout('charge', { odds: 1 }); this.model.glow = 0.6; G.fx.shock.flash(this.model.chestWorld(new THREE.Vector3()), 16, 0xffe9a0, 0.25); }
     G.fightCam && G.fightCam.addTraumaAt(head, 0.35, 400);
+  }
+
+  // Where the head goes: up at him when he leaps, down at him when he's on his back, and round
+  // to him before the body has finished turning.
+  _look(standing) {
+    const M = this.model, o = this.opp, st = this.state;
+    let p = 0, y = 0;
+    if (o && !this.exploring && standing && !this.running && (st === 'free' || st === 'block' || st === 'charge')) {
+      const d = Math.max(14, this.flatDist(o));
+      p = -clamp(Math.atan2(o.pos.y - this.pos.y + (o.H - this.H) * 0.3, d), -0.55, 0.9);
+      const a = Math.atan2(o.pos.x - this.pos.x, o.pos.z - this.pos.z) - this.yaw;
+      y = clamp(Math.atan2(Math.sin(a), Math.cos(a)), -0.9, 0.9);
+    }
+    M.lookPitch = p; M.lookYaw = y;
+  }
+
+  // The body's answer to a blow. `dir`: the way it's travelling (world); `s`: how hard (0.3 a jab
+  // .. 2 a finisher). `high`: it lands on the head (which snaps back) or in the body (he folds
+  // over it); `side`: thrown with the attacker's left (+1) or right (-1), it wrings him round that
+  // way; `guard`: it lands on his guard (the arms are driven in, half of it gets through);
+  // `pose` false keeps the pose he's in; `stop`: the hitstop it comes with (he shudders through it).
+  flinch(dir, s, { high = true, side = 0, guard = false, pose = true, stop = 0.1 } = {}) {
+    const M = this.model, k = clamp(s, 0.25, 1.6), K = k * (guard ? 0.5 : 1);
+    // into his own frame: z ahead of him, x to his left
+    const sn = Math.sin(this.yaw), cs = Math.cos(this.yaw);
+    const fz = dir.x * sn + dir.z * cs, front = fz < 0.2;
+    const lat = clamp(dir.x * cs - dir.z * sn + side * (front ? 0.8 : -0.8), -1, 1);
+    if (pose && !guard) M.setAction((high && front ? 'hitHigh' : 'hitBody') + (lat > 0.3 ? 'L' : lat < -0.3 ? 'R' : ''), 60);
+    if (guard) {
+      // onto the guard: the arms are driven back into him, he ducks behind them
+      M.kick('shL', -fz * 7 * k); M.kick('shR', -fz * 7 * k); M.kick('elL', -6 * k); M.kick('elR', -6 * k);
+      M.kick('chest', fz * 4 * k, lat * 3 * k); M.kick('head', 3 * k);
+    } else if (high && front) {
+      M.kick('head', fz * 11 * K, lat * 9 * K, -lat * 5 * K);
+      M.kick('chest', fz * 6 * K, lat * 6 * K, -lat * 3 * K);
+      M.kick('spine', fz * 3 * K, lat * 2 * K);
+    } else {
+      // in the body: the middle of him goes back, so he folds over it and the head comes forward
+      M.kick('spine', -fz * 4 * K, lat * 3 * K);
+      M.kick('chest', -fz * 2.5 * K, lat * 5 * K, -lat * 2 * K);
+      M.kick('head', -fz * 5 * K, lat * 5 * K);
+    }
+    if (!guard) {
+      // the arms are left behind, the knees give, the tail lashes
+      M.kick('shL', fz * 5 * K, 0, 4 * K); M.kick('shR', fz * 5 * K, 0, -4 * K); M.kick('elL', 4 * K); M.kick('elR', 4 * K);
+    }
+    M.kick('knL', 3 * K); M.kick('knR', 3 * K); M.kick('hipL', -1.5 * K); M.kick('hipR', -1.5 * K);
+    M.kick('tail1', 4 * K, -lat * 5 * K); M.kick('tail2', 3 * K, -lat * 4 * K); M.kick('tail3', 2 * K, -lat * 3 * K);
+    M.sway(fz * (guard ? 2.4 : 3.8) * k, lat * 2.4 * K);
+    M.jolt(guard ? 0.55 : clamp(0.55 + 0.4 * k, 0, 1));
+    M.settle(0.04);
+    if (stop > 0) M.shudder(_v.set(dir.x, 0, dir.z).normalize(), (guard ? 0.3 : 0.45) + 0.5 * k, stop + 0.06);
+  }
+
+  // Coming down onto his feet: the knees give, the body drops into it and comes back up.
+  _landKick(k) {
+    const M = this.model;
+    M.hitSquash(UP, 0.45 * k);
+    M.jolt(0.5);
+    M.kick('hipL', -4 * k); M.kick('hipR', -4 * k); M.kick('knL', 8 * k); M.kick('knR', 8 * k);
+    M.kick('spine', 3.5 * k); M.kick('head', 4 * k);
+    M.kick('shL', 4 * k, 0, 2.5 * k); M.kick('shR', 4 * k, 0, -2.5 * k);
+    M.kick('tail1', 6 * k); M.kick('tail2', 5 * k); M.kick('tail3', 4 * k);
   }
 
   _trails() {
@@ -1771,6 +2005,13 @@ export function resolveHit(att, vic, mv, dirIn) {
       att.cancelActions();
       att.setState('stagger'); att.staggerT = 0.7;
       att.vel.copy(dir).multiplyScalar(-14);
+      // the swing is knocked aside: he reels back off balance, the other one's arms snap out
+      att.model.setAction('reel', 46);
+      att.model.jolt(0.9); att.model.sway(-3.4, m.side === 'L' ? 1.2 : -1.2);
+      att.model.settle(0.04);
+      att.model.shudder(dir, 0.7, 0.2);
+      vic.model.kick('shL', -3, 0, 8); vic.model.kick('shR', -3, 0, -8); vic.model.kick('chest', 3); vic.model.sway(1.4);
+      vic.model.jolt(0.5);
       vic.meter = Math.min(100, vic.meter + 15);
       juiceHit(point, dir, 0.9, { hitstop: 0.14, blocked: true, sound: 'parry', comic: 'parry', slowmo: [0.3, 0.3], flash: 0.25 });
       att.shout('hurt_light', { odds: 0.6 });
@@ -1781,6 +2022,9 @@ export function resolveHit(att, vic, mv, dirIn) {
     if (m.guardBreak && ch >= m.guardBreak) {
       vic.setState('stagger'); vic.staggerT = 0.9;
       vic.vel.copy(dir).multiplyScalar(18);
+      // the guard is smashed open: he reels
+      vic.model.setAction('reel', 46);
+      vic.flinch(dir, 1.2, { pose: false, stop: 0.16 });
       juiceHit(point, dir, 1.2, { hitstop: 0.16, sound: 'huge', comic: 'heavy', victimIsPlayer: playerVictim });
       G.hud && G.hud.flashText(vic, 'GUARD BREAK!');
       vic.shout('hurt_light');
@@ -1789,6 +2033,9 @@ export function resolveHit(att, vic, mv, dirIn) {
     const chip = val('dmg') * 0.12 * att.power;
     vic.takeDamage(chip, att, false);
     vic.vel.copy(dir).multiplyScalar(6 + val('launch') * 0.15);
+    // it lands on the guard: he's driven back behind it, the attacker's swing bounces off
+    vic.flinch(dir, strength, { guard: true, pose: false, stop: m.hitstop * 0.6 });
+    att.model.sway(-1.2 - strength);
     juiceHit(point, dir, strength * 0.5, { hitstop: m.hitstop * 0.6, blocked: true, sound: 'block', victimIsPlayer: playerVictim });
     G.fx.comic('block', point, 0.6);
     vic.shout('block', { odds: 0.6 });
@@ -1835,7 +2082,8 @@ export function resolveHit(att, vic, mv, dirIn) {
     vic.setState('hitstun');
     vic.stunT = m.hitstun;
     vic.vel.copy(dir).multiplyScalar(m.kb);
-    vic.model.setAction(chance(0.5) ? 'hitHigh' : 'hitBody', 60);
+    // where it lands and which hand threw it decide how he takes it (was: one of two poses at random)
+    vic.flinch(dir, strength, { high: m.react !== 'body', side: m.side === 'L' ? 1 : m.side === 'R' ? -1 : 0, stop: m.hitstop });
     vic.shout('hurt_light', { odds: 0.6 });
     juiceHit(point, dir, strength, { hitstop: m.hitstop, sound: m.sound, comic: strength > 0.5 && chance(0.4) ? 'light' : null, victimIsPlayer: playerVictim });
   }

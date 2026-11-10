@@ -1,8 +1,11 @@
 // Procedural toon kaiju. Two primitive-built rigs on one skeleton: KAISER-OH, a sentai-style
 // giant robot, and GORRAX, an atomic lizard with a tail and dorsal plates. One pose library with
-// per-character overrides, layered pose blending, a procedural walk cycle (footfall events drive
-// the quakes), tail sway, anime smear frames, hit flash + squash, glowing plates / chest emblem,
-// rocket-thruster flames and a summoned energy sword.
+// per-character overrides and layered pose blending; every joint chases its pose on a damped
+// spring (swings ease out of the wind-up, carry past the strike and settle; the head and the tail
+// trail the body; a blow is an impulse the body rings with). On top: breathing, a head that looks
+// at the other one, a procedural walk cycle (footfall events drive the quakes), feet that stay
+// flat on the street, anime smear frames, hit flash, squash and stretch, the shudder of a hitstop,
+// glowing plates / chest emblem, rocket-thruster flames and a summoned energy sword.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import { gradientMap, outlineMaterial, addOutline, rimLight, RIM_GLSL } from '../render/toon.js';
@@ -93,7 +96,8 @@ export const POSES = {
     hipL: [-30, 0, 8], knL: [50, 0, 0], hipR: [-18, 0, -8], knR: [40, 0, 0],
   },
   hitHigh: { spine: [-16, 0, 0], chest: [-22, 0, 0], head: [-38, 0, 0], jaw: [24, 0, 0], shL: [24, 0, 46], elL: [-40, 0, 0], shR: [24, 0, -46], elR: [-40, 0, 0], hipL: [10, 0, 0], knL: [30, 0, 0], hipR: [20, 0, 0], knR: [40, 0, 0] },
-  hitBody: { spine: [34, 0, 0], chest: [22, 0, 0], head: [18, 0, 0], jaw: [18, 0, 0], shL: [-34, 0, 22], elL: [-50, 0, 0], shR: [-34, 0, -22], elR: [-50, 0, 0], hipL: [-50, 0, 0], knL: [70, 0, 0], hipR: [-40, 0, 0], knR: [60, 0, 0] },
+  // (folded over a body blow, but not so far that his head ends up in the other one's stomach)
+  hitBody: { spine: [24, 0, 0], chest: [15, 0, 0], head: [14, 0, 0], jaw: [18, 0, 0], shL: [-30, 0, 22], elL: [-56, 0, 0], shR: [-30, 0, -22], elR: [-56, 0, 0], hipL: [-42, 0, 0], knL: [60, 0, 0], hipR: [-34, 0, 0], knR: [52, 0, 0] },
   tumble: {
     spine: [-18, 0, 0], chest: [-16, 0, 0], head: [-30, 0, 0], jaw: [20, 0, 0],
     shL: [-30, 0, 78], elL: [-38, 0, 0], shR: [-30, 0, -78], elR: [-38, 0, 0],
@@ -105,6 +109,27 @@ export const POSES = {
   // heaving himself up out of the rubble
   recover: { spine: [34, 0, 0], chest: [20, 0, 0], head: [-26, 0, 0], shL: [-50, 0, 30], elL: [-20, 0, 0], shR: [-50, 0, -30], elR: [-20, 0, 0], hipL: [-80, 0, 10], knL: [110, 0, 0], hipR: [-10, 0, -10], knR: [100, 0, 0] },
   heroLand: { spine: [34, 0, 0], chest: [18, 0, 0], head: [-34, 0, 0], shR: [-30, 0, -8], elR: [-6, 0, 0], shL: [18, 0, 46], elL: [-30, 0, 0], hipL: [-96, 0, 12], knL: [104, 0, 0], hipR: [28, 0, -8], knR: [118, 0, 0] },
+  // coming down out of a leap: both knees give, the body folds into it (blended in by how hard he lands)
+  land: {
+    spine: [26, 0, 0], chest: [12, 0, 0], head: [-24, 0, 0],
+    shL: [-16, 0, 42], elL: [-52, 0, 0], shR: [-16, 0, -42], elR: [-52, 0, 0],
+    hipL: [-62, 0, 10], knL: [92, 0, 0], hipR: [-46, 0, -10], knR: [96, 0, 0],
+    tail1: [10, 0, 0], tail2: [8, 0, 0],
+  },
+  // knocked off balance (a parried swing, a broken guard): thrown back on his heels, arms flung wide
+  reel: {
+    spine: [-12, 14, 0], chest: [-16, 22, 0], head: [-22, -12, 0], jaw: [18, 0, 0],
+    shL: [-64, 0, 74], elL: [-46, 0, 0], shR: [18, 0, -52], elR: [-58, 0, 0],
+    hipL: [16, 0, 10], knL: [22, 0, 0], hipR: [-34, 0, -10], knR: [44, 0, 0],
+    tail1: [-2, 14, 0], tail2: [-4, 10, 0],
+  },
+  // the other half of the flail while he flies (it swings between `tumble` and this): curled up
+  tumbleB: {
+    spine: [14, 0, 0], chest: [10, 0, 0], head: [16, 0, 0], jaw: [28, 0, 0],
+    shL: [-96, 0, 40], elL: [-22, 0, 0], shR: [-70, 0, -58], elR: [-54, 0, 0],
+    hipL: [-66, 0, 10], knL: [72, 0, 0], ftL: [24, 0, 0], hipR: [-38, 0, -16], knR: [34, 0, 0], ftR: [30, 0, 0],
+    tail1: [-14, 0, 0], tail2: [-10, 0, 0], tail3: [-8, 0, 0],
+  },
   punchL: { chest: [6, -40, 0], shL: [-90, 0, 4], elL: [-4, 0, 0], shR: [-90, 0, 0], elR: [-6, 0, 0] },
   punchR: { chest: [6, 40, 0], shR: [-90, 0, 0], elR: [-4, 0, 0], shL: [-80, 0, 10], elL: [-40, 0, 0] },
   // KAISER SABER: raised to the sky, slashed, then the final cleave
@@ -165,14 +190,40 @@ const BEAST_POSES = {
 export const JOINTS = ['spine', 'chest', 'head', 'jaw', 'shL', 'elL', 'shR', 'elR', 'hipL', 'knL', 'ftL', 'hipR', 'knR', 'ftR', 'tail1', 'tail2', 'tail3', 'tail4', 'tail5'];
 const TAIL = ['tail1', 'tail2', 'tail3', 'tail4', 'tail5'];
 // poses that keep their whole shape (everything else falls back to the guard for unspecified joints)
-const WHOLE = ['idle', 'run', 'air', 'dive', 'tumble', 'down', 'dangle', 'taunt', 'roar', 'block', 'recover'];
+const WHOLE = ['idle', 'run', 'air', 'dive', 'tumble', 'tumbleB', 'down', 'dangle', 'taunt', 'roar', 'block', 'recover'];
 // poses off the ground: no auto-flat feet
-const AIRBORNE = ['air', 'dive', 'tumble', 'down', 'dangle'];
+const AIRBORNE = ['air', 'dive', 'tumble', 'tumbleB', 'down', 'dangle'];
+
+// Joint dynamics: [stiffness, damping ratio in full swing]. Under 1 a joint carries past its pose
+// and comes back (the follow-through of a swing, the wobble after a blow); the further down the
+// tail, the softer and the later. Slow blends are damped to 1 whatever this says (see _springs).
+const DYN = {
+  spine: [1, 0.72], chest: [1, 0.6], head: [0.8, 0.48], jaw: [1.3, 0.9],
+  shL: [1.1, 0.58], shR: [1.1, 0.58], elL: [1.3, 1], elR: [1.3, 1],
+  hipL: [1, 0.85], hipR: [1, 0.85], knL: [1.15, 1], knR: [1.15, 1], ftL: [1.5, 1], ftR: [1.5, 1],
+  tail1: [0.8, 0.5], tail2: [0.66, 0.42], tail3: [0.55, 0.36], tail4: [0.46, 0.32], tail5: [0.4, 0.3],
+};
+// hinges: one axis, with stops (rad), so no impulse or overshoot ever bends an elbow or a knee backwards
+const HINGE = { elL: [-2.7, 0.05], elR: [-2.7, 0.05], knL: [-0.05, 2.7], knR: [-0.05, 2.7], jaw: [-0.08, 1.2], ftL: [-2.4, 2.4], ftR: [-2.4, 2.4] };
+const TAIL_W = 22;        // the tail's own stiffness (rad/s), whatever the body is doing
+const TAIL_DRAG = [0.5, 0.45, 0.4, 0.34, 0.28]; // how much of a turn each tail joint is left behind by
+const SUB = 1 / 120;      // spring substep (s): the game runs up to 3x pace and the strike springs are stiff
 
 const POSE_CACHE = new Map();
 function poseTable(def) {
   if (POSE_CACHE.has(def.name)) return POSE_CACHE.get(def.name);
   const src = { ...POSES, ...(def.poses || {}) };
+  // a blow from one side: the same reaction, wrung round and tipped the way it sends him
+  // (L: toward his left). Head, chest and spine twist and lean, the arms are thrown that way.
+  for (const b of ['hitHigh', 'hitBody']) {
+    for (const [tag, sg] of [['L', 1], ['R', -1]]) {
+      const p = {};
+      for (const [j, e] of Object.entries(src[b])) p[j] = e.slice();
+      const add = (j, y, z) => { p[j][1] += y * sg; p[j][2] += z * sg; };
+      add('spine', 10, -6); add('chest', 22, -8); add('head', 30, -10); add('shL', 0, 22); add('shR', 0, 22);
+      src[b + tag] = p;
+    }
+  }
   const out = {};
   for (const [name, p] of Object.entries(src)) {
     const full = {};
@@ -218,13 +269,25 @@ export class CharacterModel {
     this.mats = [];
     this.flash = 0;
     this.squash = 0;
+    this.stretch = 0;       // the other way: drawn out tall and thin (a leap)
     this.squashDir = new THREE.Vector3(0, 1, 0);
     this.smearL = 0; this.smearR = 0;
     this.base = 'idle';
     this.action = null;
     this.actionW = 0;
     this.actionWTarget = 0;
-    this.rate = 14;
+    this._tune(14);
+    this.t = 0;             // his own clock (game time: it stops with a hitstop)
+    this.loose = 0;         // knocked loose: the springs go soft and ring (0..1, see jolt)
+    this.rock = { x: 0, z: 0, vx: 0, vz: 0 }; // the whole body rocking on its feet: forward, sideways (rad)
+    this.shakeT = 0; this.shakeT0 = 1; this.shakeAmp = 0;
+    this.shakeDir = new THREE.Vector3(1, 0, 0);
+    this.heading = 0; this.headingPrev = 0; this.turn = 0; // which way the body faces (the tail trails a turn)
+    this.lookPitch = 0; this.lookYaw = 0; this.lookP = 0; this.lookY = 0; // where the head wants to look
+    this.plantK = 0;
+    this.brace = 0;         // feet planted for a strike (0..1): the stride stops on both feet, not mid-step
+    // each hand's aim: a point in the world it reaches for on top of its pose (see reach)
+    this.ik = { L: { t: new THREE.Vector3(), on: false, w: 0, max: 0.7 }, R: { t: new THREE.Vector3(), on: false, w: 0, max: 0.7 } };
     this.damage = 0;
     this.glow = 0;          // dorsal plates / chest emblem charging up (0..1.5)
     this.thrust = 0;        // rocket thrusters (robot)
@@ -282,29 +345,73 @@ export class CharacterModel {
     this.J = {};
     (def.rig === 'beast' ? buildBeast : buildMech)(this);
     for (const j of JOINTS) if (!this.J[j]) this.J[j] = this.grp(this.J.pelvis, [0, 0, 0]); // a robot has no tail
-    this.cur = {};
-    for (const j of JOINTS) { this.cur[j] = this.P.idle[j].clone(); this.J[j].quaternion.copy(this.cur[j]); }
+    // each joint: where it is (`cur`), how fast it's turning (`vel`, rad/s about its parent's
+    // axes) and the pose it's after this frame (`tq`)
+    this.cur = {}; this.vel = {}; this.tq = {};
+    for (const j of JOINTS) {
+      this.cur[j] = this.P.idle[j].clone(); this.vel[j] = new THREE.Vector3(); this.tq[j] = new THREE.Quaternion();
+      this.J[j].quaternion.copy(this.cur[j]);
+    }
+    this.dyn = JOINTS.filter((j) => def.tail || !TAIL.includes(j)); // a robot has no tail to swing
+    this.legs = {}; // the leg joints as drawn (pose, springs and stride together), for legDrop
+    for (const j of ['hipL', 'knL', 'hipR', 'knR']) this.legs[j] = this.J[j].quaternion;
     this._guardLow = this._legLow(this.P.guard);
   }
 
   setBase(name) { this.base = name; }
-  // Pose override with a blend rate. rate ~60 snaps for strike frames.
+  // Pose override with a blend rate: up to ~20 an eased move, 40 and over a strike (it whips
+  // there, carries a little past and settles: see _tune and DYN).
   setAction(name, rate = 18) {
-    if (name) { this.action = name; this.actionWTarget = 1; this.rate = rate; }
-    else { this.actionWTarget = 0; this.rate = rate; }
+    if (name) { this.action = name; this.actionWTarget = 1; } else this.actionWTarget = 0;
+    this._tune(rate);
   }
   // Pose override held at an exact weight, for scripted blends (standing up out of a kneel).
-  blend(name, w, rate = 30) { this.action = name; this.actionW = this.actionWTarget = w; this.rate = rate; }
+  blend(name, w, rate = 30) { this.action = name; this.actionW = this.actionWTarget = w; this._tune(rate); }
   // Straight into a pose, no blend (a cut: a skipped round opener).
   snap(name) {
-    this.base = name; this.action = null; this.actionW = this.actionWTarget = 0; this.rate = 8;
-    for (const j of JOINTS) { this.cur[j].copy(this.P[name][j]); this.J[j].quaternion.copy(this.cur[j]); }
+    this.base = name; this.action = null; this.actionW = this.actionWTarget = 0; this._tune(8);
+    for (const j of JOINTS) { this.cur[j].copy(this.P[name][j]); this.vel[j].set(0, 0, 0); this.J[j].quaternion.copy(this.cur[j]); }
+    this.rock.x = this.rock.z = this.rock.vx = this.rock.vz = 0;
+    this.loose = 0; this.shakeT = 0;
+  }
+  // A blend rate as a spring: how stiff (rad/s) and how much of each joint's own bounce it gets
+  // (0: critically damped, an ease; 1: the joint's damping in DYN, a swing that carries past).
+  _tune(rate) {
+    this.rate = rate;
+    this.omega = Math.min(rate * 1.9, 40 + rate * 0.2);
+    this.swing = clamp((rate - 22) / 24, 0, 1);
   }
 
-  // How much higher the lowest knee or sole of the pose as blended right now sits than in the
-  // guard stance (model units; 0 for anything straighter). Kneeling, the body comes down by this
-  // much so the knee is on the street (Fighter.update).
-  legDrop() { return Math.max(0, this._legLow(this.cur) - this._guardLow); }
+  // An impulse on a joint (rad/s about its parent's axes: x pitch, y yaw, z roll).
+  kick(j, x = 0, y = 0, z = 0) {
+    if (!this.def.tail && j.startsWith('tail')) return; // (a robot has none)
+    const v = this.vel[j]; v.x += x; v.y += y; v.z += z;
+  }
+  // Knocked loose for a moment: softer, under-damped springs, so the body rings with it.
+  jolt(v = 1) { this.loose = Math.max(this.loose, v); }
+  // An impulse on the whole body, rocking on its feet (rad/s: + forward, + onto his left side).
+  sway(vx, vz = 0) { this.rock.vx += vx; this.rock.vz += vz; }
+  // The shudder of a hitstop: `amp` metres back and forth along `dir` (world), dying away over
+  // `time` real seconds (the world is frozen, he isn't quite).
+  shudder(dir, amp, time) {
+    if (amp * time <= this.shakeAmp * this.shakeT) return;
+    this.shakeDir.copy(dir); this.shakeAmp = amp; this.shakeT = this.shakeT0 = Math.max(0.02, time);
+  }
+  // A hand reaches for a point in the world (a blow lands on him, a grip holds him) instead of
+  // going where its pose alone would send it; `max`: how far off the pose's own line it may be
+  // pulled (rad). unaim lets it go back to the pose.
+  aim(side, point, max = 0.7) { const k = this.ik[side]; k.t.copy(point); k.on = true; k.max = max; }
+  unaim(side) { if (side) this.ik[side].on = false; else this.ik.L.on = this.ik.R.on = false; }
+
+  // Run the springs on by `sec` at once: a blow lands in the frame it connects, so the frame the
+  // hitstop holds already shows him taking it.
+  settle(sec) { this._springs(sec); }
+
+  // How much higher the lowest knee or sole of the legs as they are right now (pose, springs and
+  // stride) sits than in the guard stance (model units; negative: the legs are straighter, he
+  // stands taller). The body comes down (or up) by this much, so that knee or sole is on the
+  // street (Fighter.update): he sinks into a lunge, rides up over the standing leg mid-stride.
+  legDrop() { return Math.max(-0.1, this._legLow(this.legs) - this._guardLow); }
   _legLow(Q) {
     const J = this.J;
     let low = Infinity;
@@ -324,39 +431,184 @@ export class CharacterModel {
   setDamage(v) { this.damage = v; for (const m of this.mats) m.userData.u.uDamage.value = v; }
   showSword(v) { if (this.sword) this.sword.visible = v; }
 
-  // grounded: walking on the street (drives the gait)
+  // grounded: standing on the street on his own feet (drives the gait, keeps the soles flat)
   update(dt, realDt, vel, frozen, grounded = false) {
     const J = this.J;
-    this.actionW = damp(this.actionW, this.actionWTarget, this.actionWTarget > 0 ? 40 : 10, dt || 0);
+    dt = dt || 0;
+    this.t += dt;
+    this.actionW = damp(this.actionW, this.actionWTarget, this.actionWTarget > 0 ? 40 : 10, dt);
     if (this.actionWTarget === 0 && this.actionW < 0.01) this.action = null;
     const baseQ = this.P[this.base] || this.P.idle;
     const actQ = this.action ? this.P[this.action] : null;
-    const k = 1 - Math.exp(-this.rate * dt);
     for (const j of JOINTS) {
-      _q.copy(baseQ[j]);
-      if (actQ) _q.slerp(actQ[j], this.actionW);
-      this.cur[j].slerp(_q, k);
-      J[j].quaternion.copy(this.cur[j]);
+      const t = this.tq[j].copy(baseQ[j]);
+      if (actQ) t.slerp(actQ[j], this.actionW);
     }
+    if (dt > 0) {
+      this._drag(dt);
+      this._springs(dt);
+      this.loose = Math.max(0, this.loose - dt * 1.5);
+      // rocking on his feet: a soft spring back to upright
+      const r = this.rock, w = 15, f = 1 + 2 * dt * 0.42 * w, hoo = dt * w * w, inv = 1 / (f + dt * hoo);
+      const nx = (f * r.x + dt * r.vx) * inv, nz = (f * r.z + dt * r.vz) * inv;
+      r.vx = (r.vx - hoo * r.x) * inv; r.vz = (r.vz - hoo * r.z) * inv;
+      r.x = clamp(nx, -0.34, 0.34); r.z = clamp(nz, -0.3, 0.3);
+    }
+    for (const j of JOINTS) J[j].quaternion.copy(this.cur[j]);
+    this._plant(dt, grounded);
+    this._alive(dt);
     this._gait(dt, vel, grounded);
     // smear frames: stretch the striking arm for a couple of frames
     this.smearL = Math.max(0, this.smearL - dt * 9);
     this.smearR = Math.max(0, this.smearR - dt * 9);
-    this.flash = Math.max(0, this.flash - realDt * 6);
+    // the hit flash: white for a frame or two, a quick warm fade after (all of it in real time,
+    // so the freeze frame of a hitstop shows the blow landing, not a white shape)
+    this.flash = Math.max(0, this.flash - realDt * 13);
     this.looks(this.smearL, this.smearR, this.flash, this.damage, this.glow, this.thrust);
     // squash & stretch (decays in real time; jitters during hitstop)
     this.squash = Math.max(0, this.squash - realDt * 5);
-    const sq = this.squash;
+    this.stretch = Math.max(0, this.stretch - realDt * 4);
+    this.shakeT = Math.max(0, this.shakeT - realDt);
+    if (this.shakeT <= 0) this.shakeAmp = 0;
+    const sq = this.squash, st = this.stretch;
     const S = this.def.scale || 1;
     const jitter = frozen && sq > 0 ? (Math.random() - 0.5) * 0.05 * sq : 0;
-    this.body.scale.set(S * (1 + sq * 0.08 + jitter), S * (1 - sq * 0.1), S * (1 + sq * 0.08 - jitter));
+    this.body.scale.set(S * (1 + sq * 0.08 - st * 0.045 + jitter), S * (1 - sq * 0.1 + st * 0.09), S * (1 + sq * 0.08 - st * 0.045 - jitter));
+  }
+
+  // Every joint a damped spring after its pose (implicit, so it holds at any step): stiffness
+  // from the blend rate, damping from DYN (all the way to 1, an ease, on slow blends; softer and
+  // ringing while he's knocked loose). The tail keeps its own slow springs whatever the body does.
+  _springs(dt) {
+    const n = Math.max(1, Math.ceil(dt / SUB - 1e-6)), h = dt / n;
+    const lo = this.loose, sw = Math.max(this.swing, lo), om = Math.max(12, this.omega * (1 - 0.35 * lo));
+    for (const j of this.dyn) {
+      const d = DYN[j], cur = this.cur[j], v = this.vel[j], tq = this.tq[j];
+      const tail = j.charCodeAt(0) === 116 && j.charCodeAt(1) === 97; // 'ta..'
+      const w = (tail ? TAIL_W : om) * d[0], z = tail ? d[1] : 1 + (d[1] - 1) * sw;
+      const f = 1 + 2 * h * z * w, hoo = h * w * w, hhoo = h * hoo, inv = 1 / (f + hhoo);
+      for (let i = 0; i < n; i++) {
+        // what's left to turn, as a rotation vector in the parent's frame: tq = exp(e) * cur
+        _q.copy(cur).conjugate().premultiply(tq);
+        if (_q.w < 0) _q.set(-_q.x, -_q.y, -_q.z, -_q.w);
+        const sl = Math.hypot(_q.x, _q.y, _q.z);
+        const a = sl > 1e-7 ? (2 * Math.atan2(sl, _q.w)) / sl : 2;
+        const ex = _q.x * a, ey = _q.y * a, ez = _q.z * a;
+        const dx = (h * v.x + hhoo * ex) * inv, dy = (h * v.y + hhoo * ey) * inv, dz = (h * v.z + hhoo * ez) * inv;
+        v.set((v.x + hoo * ex) * inv, (v.y + hoo * ey) * inv, (v.z + hoo * ez) * inv);
+        const dl = Math.hypot(dx, dy, dz);
+        if (dl > 1e-9) {
+          const sn = Math.sin(dl / 2) / dl;
+          cur.premultiply(_q.set(dx * sn, dy * sn, dz * sn, Math.cos(dl / 2)));
+        }
+      }
+      const lim = HINGE[j];
+      if (lim) {
+        let ang = 2 * Math.atan2(cur.x, cur.w);
+        if (ang > Math.PI) ang -= Math.PI * 2; else if (ang < -Math.PI) ang += Math.PI * 2;
+        if (ang < lim[0]) { ang = lim[0]; if (v.x < 0) v.x = 0; } else if (ang > lim[1]) { ang = lim[1]; if (v.x > 0) v.x = 0; }
+        cur.set(Math.sin(ang / 2), 0, 0, Math.cos(ang / 2));
+        v.y = 0; v.z = 0;
+      } else cur.normalize();
+    }
+  }
+
+  // The tail has inertia: it's left behind by a turn (a tail whip most of all) and comes round after.
+  _drag(dt) {
+    if (!this.def.tail) return;
+    let d = this.heading - this.headingPrev;
+    d = Math.atan2(Math.sin(d), Math.cos(d));
+    this.headingPrev = this.heading;
+    const turn = clamp(d / dt, -14, 14), dv = clamp(turn - this.turn, -5, 5);
+    this.turn += dv;
+    for (let i = 0; i < TAIL.length; i++) this.vel[TAIL[i]].y -= dv * TAIL_DRAG[i];
+  }
+
+  // Soles flat on the street whatever the legs are doing (a pose's own foot angle only counts
+  // off the ground): the springs and the kicks move hips and knees separately, the feet answer both.
+  _plant(dt, grounded) {
+    this.plantK = damp(this.plantK, grounded ? 1 : 0, 14, dt);
+    if (this.plantK < 0.01) return;
+    for (const s of ['L', 'R']) {
+      const hx = _e.setFromQuaternion(this.cur['hip' + s], 'XYZ').x, k = this.cur['kn' + s];
+      _q.setFromEuler(_e.set(-(hx + 2 * Math.atan2(k.x, k.w)), 0, 0));
+      this.J['ft' + s].quaternion.slerp(_q, this.plantK);
+    }
+  }
+
+  _rot(j, x, y, z) { this.J[j].quaternion.premultiply(_q.setFromEuler(_e.set(x, y, z))); }
+
+  // Alive at rest: he breathes (the lizard heaves, the robot barely does), and his head and chest
+  // turn to the other one before the rest of him has (lookPitch / lookYaw, from the fighter).
+  _alive(dt) {
+    const beast = this.def.rig === 'beast';
+    const k = (beast ? 1 : 0.55) * (1 - 0.7 * this.actionW), b = Math.sin(this.t * (beast ? 1.35 : 1.05));
+    this._rot('spine', D(0.8) * b * k, 0, 0);
+    this._rot('chest', -D(2) * b * k, 0, 0);
+    this._rot('head', D(1.2) * b * k, 0, 0);
+    this._rot('shL', 0, 0, D(1.4) * b * k);
+    this._rot('shR', 0, 0, -D(1.4) * b * k);
+    if (beast) this.J.jaw.quaternion.multiply(_q.setFromEuler(_e.set(D(2.4) * (0.5 - 0.5 * b) * k, 0, 0)));
+    this.lookP = damp(this.lookP, this.lookPitch, 7, dt);
+    this.lookY = damp(this.lookY, this.lookYaw, 9, dt);
+    if (Math.abs(this.lookP) > 1e-3 || Math.abs(this.lookY) > 1e-3) {
+      this._rot('chest', this.lookP * 0.3, this.lookY * 0.3, 0);
+      this._rot('head', this.lookP * 0.6, this.lookY * 0.6, 0);
+    }
+  }
+
+  // The body's rock and the hitstop's shudder go onto the root, after the fighter has placed it
+  // (so the match recap, which records the root, plays them back). `h`: the pelvis above the
+  // street (the rock pivots at the feet); `planted`: standing on them; `frozen`: in a hitstop
+  // (the only time he shudders).
+  applyRoot(h, planted, frozen) {
+    const r = this.rock, root = this.root;
+    if (planted && (Math.abs(r.x) > 1e-4 || Math.abs(r.z) > 1e-4)) {
+      _q.setFromEuler(_e.set(r.x, 0, -r.z));
+      root.position.add(_v.set(0, h, 0).applyQuaternion(_q).sub(_v2.set(0, h, 0)).applyQuaternion(root.quaternion));
+      root.quaternion.multiply(_q);
+    }
+    if (frozen && this.shakeT > 0) {
+      const k = this.shakeT / this.shakeT0;
+      root.position.addScaledVector(this.shakeDir, this.shakeAmp * k * (Math.sin(performance.now() * 0.19) > 0 ? 1 : -1));
+    }
+  }
+
+  // Hands that land where they're aimed: two-bone IK over each aimed arm's pose, after everything
+  // else has moved it (so call it last, once the root is where it will be drawn). The elbow bends
+  // as much as the distance asks, the shoulder turns the least it can from the pose to put the
+  // hand on the point: a fist stops on a face instead of passing through the head behind it.
+  reach(dt) {
+    for (const s of ['L', 'R']) {
+      const k = this.ik[s];
+      k.w = damp(k.w, k.on ? 1 : 0, k.on ? 45 : 10, dt || 0);
+      if (k.w < 0.01) { k.w = 0; continue; }
+      const sh = this.J['sh' + s], el = this.J['el' + s], hand = this.J['hand' + s];
+      sh.parent.updateWorldMatrix(true, false);
+      // the point in the chest's frame, from the shoulder
+      const to = sh.parent.worldToLocal(_v.copy(k.t)).sub(sh.position);
+      const a = -el.position.y, b = -hand.position.y + 0.04;
+      const far = to.length();
+      if (far < 1e-4) continue;
+      to.divideScalar(far);
+      const d = clamp(far, Math.abs(a - b) + 0.03, (a + b) * 0.995);
+      const bend = Math.PI - Math.acos(clamp((a * a + b * b - d * d) / (2 * a * b), -1, 1)); // 0: a straight arm
+      // where the pose's own shoulder would send the hand with the elbow bent that much
+      const at = _v2.set(0, -(a + b * Math.cos(bend)), b * Math.sin(bend)).normalize().applyQuaternion(sh.quaternion);
+      const off = at.angleTo(to);
+      if (off > k.max) to.lerp(at, 1 - k.max / off).normalize(); // (only so far off the pose's line)
+      _q.setFromUnitVectors(at, to).multiply(sh.quaternion);
+      sh.quaternion.slerp(_q, k.w);
+      const cur = 2 * Math.atan2(el.quaternion.x, el.quaternion.w), ang = cur + (-bend - cur) * k.w;
+      el.quaternion.set(Math.sin(ang / 2), 0, 0, Math.cos(ang / 2));
+    }
   }
 
   // Procedural walk on top of the pose: legs swing (forward / back / sideways from the local
   // velocity), knees lift in the swing phase, feet stay flat, the body bobs and rolls, arms swing
   // against the legs, the tail waves behind. A footfall event at each step.
   _gait(dt, vel, grounded) {
-    const J = this.J, def = this.def, t = performance.now() * 0.001;
+    const J = this.J, def = this.def, t = this.t * 0.67;
     _v.set(vel ? vel.x : 0, 0, vel ? vel.z : 0);
     _q2.copy(this.root.quaternion).invert();
     _v.applyQuaternion(_q2);
@@ -367,35 +619,47 @@ export class CharacterModel {
     const a = this.gaitAmt;
     if (dt > 0 && a > 0.02) {
       const prev = Math.floor((this.gaitPhase - Math.PI / 2) / Math.PI);
-      this.gaitPhase += (Math.max(sp, def.walk * 0.45 * a) / (def.stride * (1 + this.gaitRun * 0.5))) * Math.PI * dt;
+      // Planting his feet (a strike goes out, or he's coming to a stop): the stride carries on to
+      // the next footfall and stays there, both feet down and split, instead of running on under
+      // a punch or freezing with a knee in the air.
+      const plant = Math.max(this.brace, want < 0.15 ? 1 - want / 0.15 : 0);
+      const adv = (Math.max(sp, def.walk * 0.45 * a) / (def.stride * (1 + this.gaitRun * 0.5))) * Math.PI * dt;
+      const next = (Math.floor((this.gaitPhase - Math.PI / 2) / Math.PI) + 1) * Math.PI + Math.PI / 2; // the next footfall
+      if (plant > 0.05) {
+        const left = next - this.gaitPhase;
+        // close to the last footfall still: stay on it; otherwise finish the step, quickly
+        if (left > Math.PI * 0.72) this.gaitPhase -= Math.max(0, Math.min(Math.PI - left - 1e-4, 16 * plant * dt));
+        else this.gaitPhase += Math.min(left + 1e-3, Math.max(adv * (1 - plant), 14 * plant * dt));
+      } else this.gaitPhase += adv;
       const now = Math.floor((this.gaitPhase - Math.PI / 2) / Math.PI);
       if (now !== prev && a > 0.3 && this.onStep) this.onStep(now % 2 === 0 ? 'L' : 'R', a);
     }
+    this.brace = Math.max(0, this.brace - dt * 4);
     const ph = this.gaitPhase, s = Math.sin(ph), c = Math.cos(ph);
     const dirF = sp > 0.5 ? _v.z / sp : 1, dirS = sp > 0.5 ? _v.x / sp : 0;
     const A = D(26 + 14 * this.gaitRun) * a, Kn = D(40 + 30 * this.gaitRun) * a;
-    const rot = (j, x, y, z) => { _q.setFromEuler(_e.set(x, y, z)); J[j].quaternion.premultiply(_q); };
     if (a > 0.005) {
       const hL = -A * s * dirF, hR = A * s * dirF, kL = Kn * Math.max(0, c), kR = Kn * Math.max(0, -c);
-      rot('hipL', hL, 0, A * 0.6 * s * dirS);
-      rot('hipR', hR, 0, A * 0.6 * s * dirS);
+      this._rot('hipL', hL, 0, A * 0.6 * s * dirS);
+      this._rot('hipR', hR, 0, A * 0.6 * s * dirS);
       // knees bend in the leg's own frame, feet undo both so the soles stay flat
       J.knL.quaternion.multiply(_q.setFromEuler(_e.set(kL, 0, 0)));
       J.knR.quaternion.multiply(_q.setFromEuler(_e.set(kR, 0, 0)));
       J.ftL.quaternion.multiply(_q.setFromEuler(_e.set(-(hL + kL), 0, 0)));
       J.ftR.quaternion.multiply(_q.setFromEuler(_e.set(-(hR + kR), 0, 0)));
-      rot('shL', D(12) * a * s * dirF, 0, 0);
-      rot('shR', -D(12) * a * s * dirF, 0, 0);
-      rot('spine', D(6) * this.gaitRun * a, 0, D(4) * a * s);
-      rot('chest', 0, D(7) * a * s * dirF, 0);
-      rot('head', 0, -D(5) * a * s * dirF, -D(3) * a * s);
+      this._rot('shL', D(12) * a * s * dirF, 0, 0);
+      this._rot('shR', -D(12) * a * s * dirF, 0, 0);
+      this._rot('spine', D(6) * this.gaitRun * a, 0, D(4) * a * s);
+      this._rot('chest', 0, D(7) * a * s * dirF, 0);
+      this._rot('head', 0, -D(5) * a * s * dirF, -D(3) * a * s);
     }
-    this.body.position.y = def.bob * a * (Math.abs(c) - 0.6);
+    // (most of the walk's rise and fall comes from the legs themselves now, see legDrop)
+    this.body.position.y = def.bob * 0.3 * a * (Math.abs(c) - 0.6);
     if (def.rig === 'beast') {
       // the tail lives: a slow idle wave plus a sway that follows the stride
       for (let i = 0; i < TAIL.length; i++) {
         const sway = D(5) * Math.sin(t * 1.1 - i * 0.7) + D(9) * a * Math.sin(ph - i * 0.8);
-        rot(TAIL[i], D(2) * Math.sin(t * 0.9 - i * 0.5), sway, 0);
+        this._rot(TAIL[i], D(2) * Math.sin(t * 0.9 - i * 0.5), sway, 0);
       }
     }
   }
@@ -408,7 +672,7 @@ export class CharacterModel {
     J.elL.position.y = A.el * (1 + smearL * 0.3); J.handL.position.y = A.hand * (1 + smearL * 0.4);
     J.uaR.scale.set(1, 1 + smearR * 0.3, 1); J.faR.scale.set(1, 1 + smearR * 0.4, 1);
     J.elR.position.y = A.el * (1 + smearR * 0.3); J.handR.position.y = A.hand * (1 + smearR * 0.4);
-    const f = flash > 0.5 ? 1 : flash * 0.6;
+    const f = flash > 0.72 ? 0.85 : flash * 0.45;
     const pulse = 0.85 + 0.15 * Math.sin(performance.now() * 0.025);
     for (const m of this.mats) {
       const gc = m.userData.glow;
@@ -628,7 +892,7 @@ export const KAIJU = {
   },
   gorrax: {
     name: 'gorrax', display: 'GORRAX', rig: 'beast', scale: 26, outline: 0.07,
-    hip: 0.94, walk: 16, stride: 9, bob: 0.035, height: 46, radius: 10, // walk was 12 m/s
+    hip: 0.94, walk: 16, stride: 9, bob: 0.035, height: 46, radius: 10, tail: true, // walk was 12 m/s
     voice: 'patriarch', voiceRate: 0.62, trail: 0x7fe0ff, beamColor: 0x46c4ff, beamCore: 0xe6fbff,
     beamName: 'ATOMIC BREATH', superName: 'NUCLEAR NOVA', jumpName: 'MIGHTY LEAP', diveName: 'BODY SLAM',
     poses: BEAST_POSES,
