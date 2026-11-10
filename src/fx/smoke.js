@@ -4,9 +4,12 @@
 //   (the anime/BotW smoke look, with inked rims).
 // - dust: the big clouds from breaks and collapses. Same cel bands, but see-through, so a
 //   collapse never turns the screen into a wall.
-// Both clear out of the cylinders between the camera and each fighter, so the fight stays visible.
+// Both keep the fight visible the way the buildings do (world/sightline.js): a billow that stands
+// between the lens and a kaiju leaves the picture whole, and the ones at the edge of the view of
+// him thin out. No hole is cut through the cloud: what clears has the cloud's own lumpy outline.
 import * as THREE from 'three';
 import { SUN_DIR } from '../render/renderer.js';
+import { sightUniforms } from '../world/sightline.js';
 import { uploadLive } from './particles.js';
 
 const _m = new THREE.Matrix4();
@@ -24,19 +27,19 @@ export const SMOKE_KINDS = {
   blue: { lit: [0.75, 0.9, 1.0], shade: [0.35, 0.55, 0.95] },
 };
 
-const focus = {
-  uFocusA: { value: new THREE.Vector3(0, -1e4, 0) },
-  uFocusB: { value: new THREE.Vector3(0, -1e4, 0) },
-};
 // the light the dust is seen in (render/weather.js): the billows carry their own colours, so at
 // night or under a storm they'd glow without it
 export const smokeLight = { uTint: { value: new THREE.Color(1, 1, 1) } };
 
-function smokeMaterial(translucent) {
+// msaa: the scene is drawn multisampled (every quality but low). An opaque puff on its way out
+// then goes as alpha to coverage, like a fading building: evenly, and without the speckled depth
+// a dither leaves for the ink outlines to trace. Without MSAA (and without ink) it dithers.
+function smokeMaterial(translucent, msaa) {
   return new THREE.ShaderMaterial({
     fog: true,
     transparent: translucent,
     depthWrite: !translucent,
+    alphaToCoverage: !translucent && msaa,
     // The see-through layers leave how much still shows through them in the frame's alpha channel
     // (dst.a *= 1 - a): the ink outlines drawn afterwards (render/post.js) fade by it, so a
     // building's outline isn't drawn sharp on top of the cloud in front of it.
@@ -45,18 +48,32 @@ function smokeMaterial(translucent) {
       blendSrc: THREE.SrcAlphaFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
       blendSrcAlpha: THREE.ZeroFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
     } : {}),
-    defines: translucent ? { TRANSLUCENT: 1 } : {},
+    defines: translucent ? { TRANSLUCENT: 1 } : msaa ? { COVERAGE: 1 } : {},
     uniforms: {
       ...THREE.UniformsUtils.clone(THREE.UniformsLib.fog),
       uSun: { value: SUN_DIR },
-      ...focus,
+      ...sightUniforms,
       ...smokeLight,
     },
     vertexShader: /* glsl */`
       attribute vec4 iData; attribute vec3 iLit; attribute vec3 iShade;
-      varying vec3 vN; varying vec3 vLP; varying vec4 vData; varying vec3 vLit; varying vec3 vShade; varying float vCamD; varying vec3 vWP;
+      uniform vec4 uSightA; uniform vec4 uSightB; uniform vec2 uSightZ;
+      varying vec3 vN; varying vec3 vLP; varying vec4 vData; varying vec3 vLit; varying vec3 vShade; varying float vCamD; varying vec3 vWP; varying float vVis;
       #include <common>
       #include <fog_pars_vertex>
+      // How much of a billow may show, judged as a whole ball so all of it goes together: all of
+      // one that doesn't reach into the oval round a kaiju on screen (s), or whose near side is as
+      // deep as he is (zEnd: the puffs of a hit on him, the dust at his feet); none of one that
+      // reaches well into the oval in front of him; and in between it thins.
+      float sightVis(vec4 s, float zEnd, vec2 ndc, float depth, float rad) {
+        if (zEnd <= 0.0) return 1.0;
+        vec2 h = max(s.zw, vec2(1e-4));
+        // metres its centre is outside the oval, at its own depth
+        float off = (length((ndc - s.xy) / h) - 1.0) * depth * min(h.x / projectionMatrix[0][0], h.y / projectionMatrix[1][1]);
+        float side = smoothstep(0.2 * rad, 1.05 * rad, off);
+        float deep = smoothstep(zEnd - 4.0, zEnd, depth - rad);
+        return 1.0 - (1.0 - side) * (1.0 - deep);
+      }
       void main() {
         vData = iData; vLit = iLit; vShade = iShade;
         vLP = position + iData.y;
@@ -67,15 +84,22 @@ function smokeMaterial(translucent) {
         vCamD = -mvPosition.z;
         vWP = (modelMatrix * instanceMatrix * vec4(p, 1.0)).xyz;
         gl_Position = projectionMatrix * mvPosition;
-        // a billow that swallows the camera is culled outright (no full-screen dither)
         vec3 ctr = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         float rad = length(instanceMatrix[0].xyz);
-        if (distance(cameraPosition, ctr) < rad * 1.2 + 0.8) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        vec4 cc = projectionMatrix * viewMatrix * vec4(ctr, 1.0);
+        vVis = 1.0;
+        if (cc.w > 0.5) {
+          vec2 ndc = cc.xy / cc.w;
+          vVis = sightVis(uSightA, uSightZ.x, ndc, cc.w, rad) * sightVis(uSightB, uSightZ.y, ndc, cc.w, rad);
+        }
+        // a billow that swallows the camera is culled outright (no full-screen haze), and so is
+        // one that is wholly out of the way of a kaiju
+        if (distance(cameraPosition, ctr) < rad * 1.2 + 0.8 || vVis < 0.02) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
         #include <fog_vertex>
       }`,
     fragmentShader: /* glsl */`
-      uniform vec3 uSun; uniform vec3 uFocusA; uniform vec3 uFocusB; uniform vec3 uTint;
-      varying vec3 vN; varying vec3 vLP; varying vec4 vData; varying vec3 vLit; varying vec3 vShade; varying float vCamD; varying vec3 vWP;
+      uniform vec3 uSun; uniform vec3 uTint;
+      varying vec3 vN; varying vec3 vLP; varying vec4 vData; varying vec3 vLit; varying vec3 vShade; varying float vCamD; varying vec3 vWP; varying float vVis;
       #include <common>
       #include <fog_pars_fragment>
       float hash(vec3 p) { return fract(sin(dot(p, vec3(17.1, 113.3, 41.7))) * 43758.5453); }
@@ -83,12 +107,6 @@ function smokeMaterial(translucent) {
         vec3 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
         return mix(mix(mix(hash(i), hash(i + vec3(1,0,0)), f.x), mix(hash(i + vec3(0,1,0)), hash(i + vec3(1,1,0)), f.x), f.y),
                    mix(mix(hash(i + vec3(0,0,1)), hash(i + vec3(1,0,1)), f.x), mix(hash(i + vec3(0,1,1)), hash(i + vec3(1,1,1)), f.x), f.y), f.z);
-      }
-      // 0 inside the cylinder from a to b (radius r), 1 outside; open past the far end
-      float segFade(vec3 p, vec3 a, vec3 b, float r, float tEnd) {
-        vec3 ab = b - a; float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-4), 0.0, 1.0);
-        float d = length(p - (a + ab * t));
-        return t > tEnd ? 1.0 : smoothstep(r * 0.35, r, d);
       }
       float bayer4(vec2 p) {
         vec2 a = mod(floor(p), 4.0);
@@ -102,21 +120,23 @@ function smokeMaterial(translucent) {
         if (n < thr) discard;
         vec3 N = normalize(vN);
         float rim = 1.0 - abs(dot(N, normalize(cameraPosition - vWP)));
-        // how much of this puff is allowed to cover the view
+        // how much of this puff is allowed to cover the view: nothing in the lens's face, and
+        // the whole billow's share of the view of a kaiju (vVis)
         #ifdef TRANSLUCENT
           float vis = smoothstep(3.0, 15.0, vCamD);
         #else
           float vis = smoothstep(1.5, 4.5, vCamD);
         #endif
-        vis *= segFade(vWP, cameraPosition, uFocusA, 24.0, 0.85);
-        vis *= segFade(vWP, cameraPosition, uFocusB, 18.0, 0.85);
+        vis *= vVis;
         #ifdef TRANSLUCENT
           // thick at the heart, thinning to nothing at the outline: billows that melt into each
           // other (a hard-edged ball of even density reads as a bubble)
           float alpha = 0.58 * vis * min(1.0, age * 12.0) * (1.0 - smoothstep(0.38, 0.97, rim));
           if (alpha < 0.01) discard;
+        #elif defined(COVERAGE)
+          if (vis < 0.01) discard; // (the rest goes out through the pixel's samples: alpha to coverage)
         #else
-          // opaque puffs clear out with a halftone dither, like the buildings do
+          // no MSAA: opaque puffs clear out with a halftone dither
           if (vis < bayer4(gl_FragCoord.xy)) discard;
         #endif
         float l = dot(N, uSun) * 0.5 + 0.5;
@@ -136,6 +156,8 @@ function smokeMaterial(translucent) {
         col *= vData.z > 0.5 ? uTint : mix(vec3(1.0), uTint, 0.5);
         #ifdef TRANSLUCENT
           gl_FragColor = vec4(col, alpha);
+        #elif defined(COVERAGE)
+          gl_FragColor = vec4(col, vis);
         #else
           gl_FragColor = vec4(col, 1.0);
         #endif
@@ -147,7 +169,7 @@ function smokeMaterial(translucent) {
 }
 
 class SmokeLayer {
-  constructor(scene, capacity, translucent, detail = 1) {
+  constructor(scene, capacity, translucent, detail = 1, msaa = true) {
     this.cap = capacity;
     this.n = 0;
     const F = (k) => new Float32Array(capacity * k);
@@ -165,7 +187,7 @@ class SmokeLayer {
     geo.setAttribute('iShade', this.aShade);
     this.colDirty = false; // aLit / aShade only change on a spawn or a kill
 
-    this.mesh = new THREE.InstancedMesh(geo, smokeMaterial(translucent), capacity);
+    this.mesh = new THREE.InstancedMesh(geo, smokeMaterial(translucent, msaa), capacity);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.count = 0;
     this.mesh.frustumCulled = false;
@@ -232,15 +254,14 @@ class SmokeLayer {
 }
 
 export class SmokeSystem {
-  constructor(scene, capacity, detail = 1) {
-    this.solid = new SmokeLayer(scene, Math.floor(capacity * 0.35), false, detail);
-    this.dust = new SmokeLayer(scene, Math.floor(capacity * 0.65), true, detail);
+  constructor(scene, capacity, detail = 1, msaa = true) {
+    this.solid = new SmokeLayer(scene, Math.floor(capacity * 0.35), false, detail, msaa);
+    this.dust = new SmokeLayer(scene, Math.floor(capacity * 0.65), true, detail, msaa);
     // collapse clouds: a budget of their own, so a falling tower's cloud isn't thinned out by
     // the very dust it makes
-    this.cloud = new SmokeLayer(scene, Math.floor(capacity * 0.2), true, detail);
+    this.cloud = new SmokeLayer(scene, Math.floor(capacity * 0.2), true, detail, msaa);
   }
 
-  setFocus(a, b) { focus.uFocusA.value.copy(a); focus.uFocusB.value.copy(b); }
   get n() { return this.solid.n + this.dust.n + this.cloud.n; }
   get cap() { return this.solid.cap + this.dust.cap + this.cloud.cap; }
   // how full the dust budget is (spawners thin out as it fills)

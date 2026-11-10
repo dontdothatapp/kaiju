@@ -18,7 +18,6 @@ import { buildTrack, setTrackLoop, Train } from './world/train.js';
 import { Boundary } from './world/boundary.js';
 import { Trees, parkTreeSpots } from './world/trees.js';
 import { Military } from './world/military.js';
-import { chunkUniforms } from './world/chunkMaterial.js';
 import { updateSight } from './world/sightline.js';
 import { FX } from './fx/fx.js';
 import { FightCamera } from './game/camera.js';
@@ -254,19 +253,10 @@ function simulate(realDt) {
   G.fightCam.update(realDt, dt);
   const p = G.player, b = G.bot;
   const fighting = G.game.state !== 'title' && G.game.state !== 'boot';
-  if (fighting) {
-    // the smoke's see-through tunnels aim at their chests
-    chunkUniforms.uFocus.value.copy(p.pos).setY(p.pos.y + p.H * 0.2);
-    chunkUniforms.uFocus2.value.copy(b.pos).setY(b.pos.y + b.H * 0.2);
-    G.fx.smoke.setFocus(chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
-    G.boundary.update(G.time.realTime, p.pos, b.pos);
-  } else {
-    chunkUniforms.uFocus.value.set(0, -1e4, 0);
-    chunkUniforms.uFocus2.value.set(0, -1e4, 0);
-  }
+  if (fighting) G.boundary.update(G.time.realTime, p.pos, b.pos);
   // the sightlines to both of them (in free roam none to the beaten one unless he's close: it
-  // isn't worth a street of buildings to see him lying across the city), and the buildings
-  // standing in one leave the picture
+  // isn't worth a street of buildings to see him lying across the city): the buildings standing
+  // in one leave the picture, and so do the billows of smoke (fx/smoke.js reads them itself)
   updateSight(G.camera, fighting ? G.fighters : null, realDt, G.game.state === 'explore' ? 130 : Infinity);
   G.destruction.updateView(G.camera, realDt);
   followShadow(G.sun, fighting ? _v.copy(p.pos).lerp(b.pos, 0.4) : G.fightCam.look);

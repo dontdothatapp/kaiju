@@ -425,13 +425,18 @@ Early playtesting showed the screen spending most of a fight buried in dust. The
 (`src/fx/smoke.js`, `src/fx/fx.js`):
 - Smoke has two layers with the same cel shading. Hit puffs, fire and black smoke stay opaque,
   inked billows; the big **dust clouds** from breaks and collapses are **see-through**.
-- Smoke clears out of a **visibility tunnel** from the camera to each fighter's chest (dust fades,
-  opaque puffs halftone-dither), so both kaiju stay visible through any cloud.
+- Smoke **parts** in front of both kaiju, a whole billow at a time (`src/fx/smoke.js`). A billow
+  is judged as a ball, in the vertex shader: one that reaches into the oval round a kaiju on
+  screen (the sightline's rectangle, see below) and is nearer the lens than he is goes out
+  altogether, and the ones at the oval's edge thin. No hole is cut through the cloud, so what
+  clears has the cloud's own lumpy outline. Billows whose near side is as deep as he is stay: the
+  puffs of a hit on him, the dust at his feet. Dust fades by its alpha; opaque puffs go out as
+  alpha to coverage like a fading building (a halftone dither on low quality).
 - Smoke clears within a few metres of the camera, and a puff that would swallow the camera is
   culled outright, so it never fills the screen.
 - Chunk-break dust is smaller and shorter-lived, and dust spawns thin out as the smoke pool fills.
   A collapse still gets its big cloud, but it settles in seconds.
-- Buildings **step out of the way** instead (`src/world/sightline.js`, `structures.js →
+- Buildings **step out of the way** too (`src/world/sightline.js`, `structures.js →
   updateView`). Each frame both kaiju are projected through the real camera (the portrait view
   offset included) and a rectangle on screen is fitted round each one's joints, padded by his
   bulk and clipped to the screen; the corridor from the lens through that rectangle, stopping

@@ -13,7 +13,6 @@ import { G } from '../core/context.js';
 import { clamp, lerp, noise1, UP } from '../core/math.js';
 import { JOINTS } from './character.js';
 import { W, SLOT, PREROLL, MOMENTS, snapShape, restoreShape, uploadAll } from './recorder.js';
-import { chunkUniforms } from '../world/chunkMaterial.js';
 import { updateSight } from '../world/sightline.js';
 import { followShadow } from '../render/renderer.js';
 import { SHAKE_SCALE } from './camera.js';
@@ -493,11 +492,7 @@ export class Recap {
     G.fx.update(T1 - T0, realDt, G.camera);
     this.shot.update(T1, T1 - T0);
     this._camera(realDt);
-    const p = G.player.model.root.position, b = G.bot.model.root.position;
-    chunkUniforms.uFocus.value.copy(p).setY(p.y + G.player.H * 0.2);
-    chunkUniforms.uFocus2.value.copy(b).setY(b.y + G.bot.H * 0.2);
-    G.fx.smoke.setFocus(chunkUniforms.uFocus.value, chunkUniforms.uFocus2.value);
-    updateSight(G.camera, G.fighters, realDt); // what stands in this lens's way leaves the picture, as live
+    updateSight(G.camera, G.fighters, realDt); // what stands in this lens's way (buildings, smoke) leaves the picture, as live
     followShadow(G.sun, this.cam.look);
     if (T1 >= g.tb - 1e-6) this._next();
   }

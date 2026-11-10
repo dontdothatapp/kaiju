@@ -8,8 +8,6 @@ import { gradientMap } from '../render/toon.js';
 export const STYLE = { GLASS: 0, OFFICE: 1, BRICK: 2, STRIP: 3, SLAB: 4, CONCRETE: 5 };
 
 export const chunkUniforms = {
-  uFocus: { value: new THREE.Vector3() },     // player's chest (the smoke's tunnel, fx/smoke.js)
-  uFocus2: { value: new THREE.Vector3() },    // opponent's chest
   uFadeDist: { value: 22.0 },                 // no debris is drawn this close to the lens
   uTime: { value: 0 },
   // render/weather.js: share of windows lit from inside (dusk, night), their colour, and how

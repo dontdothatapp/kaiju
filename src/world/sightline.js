@@ -16,11 +16,22 @@ const SHY = 0.35;      // the corridor stops this many body radii short of his s
                        // his back to, or stands half inside, isn't between him and the lens
 const NEAR = 0.1;
 const EDGE = 1.02;     // the screen's edge (-1..1), and a little
+const OVAL = 1.0;      // the smoke's oval round him, as a share of his rectangle (its corners are mostly air)
+const SMOKE_SHY = 0.85; // ... and how far toward him the smoke clears: a hit's puffs and the dust at his feet stay
 
 const lanes = [0, 1].map(() => ({
   on: false, live: false, o: [0, 0, 0, 0], back: 0, z: 0, cx: 0, cy: 0, dc: 0,
   fr: new THREE.Frustum(), pts: Array.from({ length: 8 }, () => new THREE.Vector3()),
 }));
+// For the smoke (fx/smoke.js), which clears out of the same view of them a whole billow at a
+// time: the oval round each kaiju on screen (centre and half size, -1..1), and how deep it clears
+// (view depth; 0: not at all).
+export const sightUniforms = {
+  uSightA: { value: new THREE.Vector4() },
+  uSightB: { value: new THREE.Vector4() },
+  uSightZ: { value: new THREE.Vector2() },
+};
+
 const _vp = new THREE.Matrix4(), _inv = new THREE.Matrix4(), _c4 = new THREE.Vector4();
 const _jw = new THREE.Vector3(), _jc = new THREE.Vector3(), _jq = new THREE.Vector3();
 const _raw = [0, 0, 0, 0];
@@ -34,10 +45,14 @@ export function updateSight(camera, fighters, dt, reach = Infinity) {
   _inv.copy(_vp).invert();
   for (let i = 0; i < 2; i++) {
     const l = lanes[i], f = fighters && fighters[i];
-    if (!f || !f.model.root.visible || !measure(l, f, m, P, dt)) { l.on = l.live = false; continue; }
+    const far = !f || !f.model.root.visible || !measure(l, f, m, P, dt);
+    sightUniforms.uSightZ.value.setComponent(i, far || l.dc >= reach ? 0 : l.dc * SMOKE_SHY);
+    if (far) { l.on = l.live = false; continue; }
+    const sx = P[0] / l.dc, sy = P[5] / l.dc, o = l.o;
+    (i ? sightUniforms.uSightB : sightUniforms.uSightA).value.set(
+      l.cx + (o[1] - o[0]) * sx / 2, l.cy + (o[3] - o[2]) * sy / 2, (o[0] + o[1]) * sx / 2 * OVAL, (o[2] + o[3]) * sy / 2 * OVAL);
     // only as much of him as is in the picture: what stands in front of the half of him that is
     // off screen (a close-up) hides nothing
-    const sx = P[0] / l.dc, sy = P[5] / l.dc, o = l.o;
     const x0 = Math.max(-EDGE, l.cx - o[0] * sx), x1 = Math.min(EDGE, l.cx + o[1] * sx);
     const y0 = Math.max(-EDGE, l.cy - o[2] * sy), y1 = Math.min(EDGE, l.cy + o[3] * sy);
     l.on = l.dc < reach && l.z > NEAR * 2 && x1 > x0 && y1 > y0;
